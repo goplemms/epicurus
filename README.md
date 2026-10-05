@@ -14,6 +14,9 @@ A personal site for small toy apps: a break from the long-running projects.
   to its own.
 - **No secrets in the repo.** It's public. Keys go in the host's
   environment variables.
+- **These rules are revisable.** When a toy ships, check whether any rule
+  got in its way. If one did, change the rule here rather than working
+  around it.
 
 ## Stack
 
