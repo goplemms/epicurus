@@ -1,8 +1,10 @@
 # Notes for Claude
 
-- Static site, no build step, no package.json. Do not add a bundler or framework.
-- Each toy lives in `toys/<slug>/` and is self-contained. Start from `toys/_template/`.
-- When a toy ships, add it to the list in the root `index.html`.
-- Libraries come from a CDN as ES modules (esm.sh, jsdelivr), pinned to a version.
-- Anything needing a backend, database or login is out of scope for this repo.
-- Preview with `python3 -m http.server`.
+- Toys live in `toys/<slug>/` and start from `toys/_template/`. Don't edit other toys' folders.
+- Frontend: React + strict TypeScript + Vite. Run `pnpm check` and `pnpm build` before pushing.
+  Don't loosen `tsconfig.json` strictness to get a build through.
+- A toy is listed on the home page via its `meta.ts`; there is no hand-maintained list.
+- Optional backend: Python in `toys/<slug>/api/` (uv, FastAPI, stdlib sqlite3).
+  Run `uv run ruff check . && uv run ruff format --check . && uv run pyright && uv run pytest` there.
+- SQLite only. Postgres, user accounts, or ongoing work mean the toy graduates to its own repo.
+- The repo is public: no secrets, keys go in host environment variables.
