@@ -1,0 +1,122 @@
+.quest-scene {
+  display: block;
+  width: 100%;
+  aspect-ratio: 200 / 96;
+  image-rendering: pixelated;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #8fd3f0;
+}
+.quest-timer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin: 1rem 0 0.5rem;
+}
+.quest-label {
+  color: var(--muted);
+}
+.quest-clock {
+  font:
+    600 3rem / 1.1 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+}
+.quest-pips {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.quest-pips span {
+  width: 0.6rem;
+  height: 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+}
+.quest-pips span.on {
+  background: var(--accent);
+}
+.quest-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.quest-buttons button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.quest-stats {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.quest-settings {
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0;
+}
+.quest-settings summary {
+  cursor: pointer;
+}
+.quest-size {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  border: 0;
+}
+.quest-size legend {
+  float: left;
+  padding: 0;
+  margin-right: 0.5rem;
+  color: var(--muted);
+}
+.quest-size button {
+  padding: 0.25rem 0.8rem;
+}
+.quest-size button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.quest-member,
+.quest-duration {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.4rem 0;
+}
+.quest-settings input,
+.quest-settings select {
+  font: inherit;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--fg);
+}
+.quest-member input {
+  flex: 1;
+  min-width: 0;
+}
+.quest-duration {
+  justify-content: flex-start;
+}
+.quest-duration input {
+  width: 5rem;
+  margin-left: auto;
+}
+.quest-duration {
+  max-width: 16rem;
+}
+.quest-note {
+  color: var(--muted);
+  font-size: 0.9em;
+  margin-bottom: 0;
+}
