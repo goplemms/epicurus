@@ -16,7 +16,7 @@ import {
 } from "./economy";
 import { type Action, reducer, type State } from "./game";
 import { meta } from "./meta";
-import { drawScene, H, type SceneInput, W } from "./scene";
+import { BASE_W, drawScene, H, type SceneInput } from "./scene";
 import { HERO_CLASSES, type HeroClass } from "./sprites";
 import { load, save } from "./storage";
 import { elapsedAt, isRunning, isUntouched, LONG_EVERY, type Phase, remainingAt } from "./timer";
@@ -63,12 +63,35 @@ function sceneInput(s: State, now: number): SceneInput {
   };
 }
 
+/** Canvas sizes, in scene pixels, that the stage may stretch to. */
+const MIN_W = 160;
+const MAX_W = 480;
+const MAX_H = 260;
+
 function Scene({ state }: { state: State }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const live = useRef(state);
+  const [size, setSize] = useState({ w: BASE_W, h: H });
   useEffect(() => {
     live.current = state;
   }, [state]);
+
+  // Match the canvas to the stage's shape: a wide window shows more desert, a tall one more sky.
+  useEffect(() => {
+    const stage = canvas.current?.parentElement;
+    if (!stage) return;
+    const fit = () => {
+      const { width: w, height: h } = stage.getBoundingClientRect();
+      if (w <= 0 || h <= 0) return;
+      const cw = Math.min(MAX_W, Math.max(MIN_W, Math.round((H * w) / h)));
+      const ch = Math.min(MAX_H, Math.max(H, Math.round((cw * h) / w)));
+      setSize((s) => (s.w === cw && s.h === ch ? s : { w: cw, h: ch }));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
@@ -86,8 +109,8 @@ function Scene({ state }: { state: State }) {
     <canvas
       ref={canvas}
       className="quest-scene"
-      width={W}
-      height={H}
+      width={size.w}
+      height={size.h}
       role="img"
       aria-label="Your party on its quest"
     />
@@ -119,8 +142,8 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
   const cost = recruitCost(run.heroes, legacy.owned);
 
   return (
-    <details className="quest-settings" open>
-      <summary>Party</summary>
+    <section className="quest-section">
+      <h2>Party</h2>
       {run.heroes.map((h, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: party slots are positional
         <div key={i} className="quest-member">
@@ -131,22 +154,24 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
             onChange={(e) => dispatch({ type: "rename", hero: i, name: e.target.value })}
           />
           <span className="quest-class">{h.cls}</span>
-          {SLOTS.map((slot) => {
-            const price = gearCost(h, slot);
-            return (
-              <button
-                key={slot}
-                type="button"
-                className="quest-gear"
-                disabled={price === null || gold < price}
-                onClick={() => dispatch({ type: "buyGear", hero: i, slot })}
-                title={price === null ? "Fully upgraded" : `Upgrade for ${price} gold`}
-              >
-                {capitalize(TIER_NAMES[h[slot]] ?? "")} {slot}
-                {price !== null && <small> · {price}g</small>}
-              </button>
-            );
-          })}
+          <div className="quest-gear-row">
+            {SLOTS.map((slot) => {
+              const price = gearCost(h, slot);
+              return (
+                <button
+                  key={slot}
+                  type="button"
+                  className="quest-gear"
+                  disabled={price === null || gold < price}
+                  onClick={() => dispatch({ type: "buyGear", hero: i, slot })}
+                  title={price === null ? "Fully upgraded" : `Upgrade for ${price} gold`}
+                >
+                  {capitalize(TIER_NAMES[h[slot]] ?? "")} {slot}
+                  {price !== null && <small> · {price}g</small>}
+                </button>
+              );
+            })}
+          </div>
         </div>
       ))}
       {cost !== null && run.heroes.length < MAX_PARTY && (
@@ -184,7 +209,7 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
           </button>
         </div>
       )}
-    </details>
+    </section>
   );
 }
 
@@ -196,8 +221,8 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
   const nextArea = AREAS[1];
 
   return (
-    <details className="quest-settings">
-      <summary>Renown · {legacy.renown} to spend</summary>
+    <section className="quest-section">
+      <h2>Renown · {legacy.renown} to spend</h2>
       <p className="quest-note">
         {ready
           ? `Retiring now ends this run and earns ${gain} renown. Gold, gear and recruits start over.`
@@ -258,7 +283,7 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
           </div>
         ))}
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -271,16 +296,19 @@ function TimerSettings({ state, dispatch }: { state: State; dispatch: Dispatch<A
     }
   };
   return (
-    <details className="quest-settings">
-      <summary>Timer</summary>
+    <fieldset className="quest-durations">
+      <legend>Minutes</legend>
       {(
         [
           ["focus", "Quest"],
-          ["short", "Short rest"],
+          ["short", "Rest"],
           ["long", "Long rest"],
         ] as const
       ).map(([phase, name]) => (
-        <label key={phase} className="quest-duration">
+        <label
+          key={phase}
+          title={phase === "long" ? `After every ${LONG_EVERY} quests` : undefined}
+        >
           {name}
           <input
             type="number"
@@ -289,11 +317,9 @@ function TimerSettings({ state, dispatch }: { state: State; dispatch: Dispatch<A
             value={durations[phase]}
             onChange={(e) => setDuration(phase, e.target.value)}
           />
-          min
         </label>
       ))}
-      <p className="quest-note">A long rest comes after every {LONG_EVERY} quests.</p>
-    </details>
+    </fieldset>
   );
 }
 
@@ -304,6 +330,7 @@ export function App() {
     event: null,
   }));
   const [now, setNow] = useState(Date.now);
+  const [drawer, setDrawer] = useState(false);
   const { timer, durations, stats, run, legacy } = state;
 
   useEffect(() => {
@@ -318,6 +345,14 @@ export function App() {
   useEffect(() => {
     save({ durations, timer, stats, run, legacy });
   }, [durations, timer, stats, run, legacy]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawer(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const heard = useRef(state.chimes);
   useEffect(() => {
@@ -338,17 +373,32 @@ export function App() {
   const go = timer.phase === "focus" ? "Set out" : "Make camp";
   const p = power(run.heroes);
   const area = AREAS[areaFor(p)] ?? AREAS[0];
+  const gold = Math.floor(run.gold);
 
   return (
     <div className="quest">
-      <Scene state={state} />
+      <div className="quest-stage">
+        <Scene state={state} />
+        <div className="quest-hud">
+          <span>
+            <strong>{gold}</strong> gold
+          </span>
+          <span>power {p}</span>
+          <span>{area.name}</span>
+        </div>
+        <div className="quest-toasts" aria-live="polite">
+          {state.event && (
+            <div key={state.event.id} className="quest-toast">
+              {state.event.text}
+            </div>
+          )}
+        </div>
+      </div>
 
-      <div className="quest-timer">
-        <div>
+      <div className="quest-bar">
+        <div className="quest-time">
           <div className="quest-label">{label}</div>
-          <div className="quest-clock" aria-live="off">
-            {clock(remaining)}
-          </div>
+          <div className="quest-clock">{clock(remaining)}</div>
           <div className="quest-pips" title="Focus sessions until a long rest">
             {Array.from({ length: LONG_EVERY }, (_, i) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length row of pips
@@ -374,22 +424,34 @@ export function App() {
             Restart
           </button>
         </div>
+        <TimerSettings state={state} dispatch={dispatch} />
+        <button
+          type="button"
+          className="quest-drawer-toggle"
+          aria-expanded={drawer}
+          aria-controls="quest-drawer"
+          onClick={() => setDrawer((d) => !d)}
+        >
+          Party &amp; renown
+        </button>
       </div>
 
-      <p className="quest-purse">
-        <strong>{Math.floor(run.gold)} gold</strong> · power {p} · {area.name}
-      </p>
-      <p className="quest-stats">
-        Today: {stats.quests} {stats.quests === 1 ? "quest" : "quests"} · {stats.foes} foes felled ·{" "}
-        {stats.totalFoes} all time
-      </p>
-      <p className="quest-event" aria-live="polite">
-        {state.event ?? ""}
-      </p>
-
-      <Party state={state} dispatch={dispatch} />
-      <Renown state={state} dispatch={dispatch} />
-      <TimerSettings state={state} dispatch={dispatch} />
+      <aside id="quest-drawer" className="quest-drawer" data-open={drawer} inert={!drawer}>
+        <header className="quest-drawer-head">
+          <h2>Party &amp; renown</h2>
+          <button type="button" onClick={() => setDrawer(false)}>
+            Close
+          </button>
+        </header>
+        <p className="quest-stats">
+          <strong>{gold} gold</strong> · power {p} · {area.name}
+          <br />
+          Today: {stats.quests} {stats.quests === 1 ? "quest" : "quests"} · {stats.foes} foes felled
+          · {stats.totalFoes} all time
+        </p>
+        <Party state={state} dispatch={dispatch} />
+        <Renown state={state} dispatch={dispatch} />
+      </aside>
     </div>
   );
 }

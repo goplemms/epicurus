@@ -14,7 +14,17 @@ import {
   type Sprite,
 } from "./sprites";
 
-export const W = 200;
+/** The width the actors are laid out for; wider canvases show more land on both sides. */
+export const BASE_W = 200;
+/** The canvas width, read at the start of every frame. */
+let W = BASE_W;
+/** Extra canvas height above the scene, filled with sky, for tall screens. */
+let OY = 0;
+
+/** Resets to the frame's base transform: the scene shifted down by the extra sky. */
+function resetTransform(ctx: CanvasRenderingContext2D) {
+  ctx.setTransform(1, 0, 0, 1, 0, OY);
+}
 export const H = 96;
 const GROUND = 76;
 /** Where the sky ends; dunes cover what is below it. */
@@ -216,7 +226,7 @@ const STRIKE: Record<HeroClass, string> = {
 };
 
 function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number) {
-  const { party, storyMs, fightMs } = input;
+  const { storyMs, fightMs } = input;
   const look = lookFor(input.area);
   const idle = input.mode === "idle";
   const cycleLen = cycleMs(fightMs);
@@ -231,6 +241,29 @@ function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: numbe
   drawDunes(ctx, offset * 0.4, 64, 4, 4, look.near);
   drawCacti(ctx, offset * 0.7, look.plant);
   drawGround(ctx, offset, look);
+  const ox = Math.round((W - BASE_W) / 2);
+  ctx.translate(ox, 0);
+  drawActors(ctx, input, anim, { idle, c, cycle, walking, fightT, fighting, look, ox });
+  resetTransform(ctx);
+}
+
+function drawActors(
+  ctx: CanvasRenderingContext2D,
+  input: SceneInput,
+  anim: number,
+  t: {
+    idle: boolean;
+    c: number;
+    cycle: number;
+    walking: boolean;
+    fightT: number;
+    fighting: boolean;
+    look: Look;
+    ox: number;
+  },
+) {
+  const { party, fightMs } = input;
+  const { idle, c, cycle, walking, fightT, fighting, look, ox } = t;
   if (idle) drawSprite(ctx, SIGN, { P: "#8b5a2b", p: "#5e3a1a" }, 128, GROUND - 7);
 
   const hit = Math.floor(fightT / HIT_MS);
@@ -270,7 +303,7 @@ function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: numbe
 
   let mx = c < WALK_MS ? MONSTER_X + (WALK_MS - c) * SPEED : MONSTER_X;
   if (fighting && hit % 4 === 3) mx -= Math.round(Math.sin(hitP * Math.PI) * 6);
-  if (mx >= W) return;
+  if (mx + ox >= W) return;
   const flash = fighting && hitP > 0.4 && hitP < 0.6;
   const wobble = Math.floor(anim / 300) % 2;
   drawSprite(
@@ -317,6 +350,7 @@ function drawCamp(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number
   drawDunes(ctx, 900, 64, 4, 4, look.near);
   drawCacti(ctx, 600, look.plant);
   drawGround(ctx, 0, look);
+  ctx.translate(Math.round((W - BASE_W) / 2), 0);
 
   // Tent.
   const tentX = 36;
@@ -342,6 +376,7 @@ function drawCamp(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number
     const singing = i === talk.who && talk.icon === "note" && Math.floor(anim / 250) % 2 === 0;
     drawHero(ctx, m, seat.x, GROUND + 1, { flip: seat.flip, lift: singing ? 1 : 0 });
   });
+  resetTransform(ctx);
 }
 
 /** Every few seconds someone at camp says something, shown as an icon. */
@@ -389,33 +424,39 @@ function drawFire(ctx: CanvasRenderingContext2D, anim: number) {
 
 function drawSky(ctx: CanvasRenderingContext2D, sky: SkyKind, anim: number) {
   // Called with "destination-over", so each draw lands behind what is already there.
-  if (sky === "day") disc(ctx, 165, 18, 8, "#fff2b0");
-  if (sky === "dusk") disc(ctx, 158, 50, 11, "#ffb35a");
+  if (sky === "day") disc(ctx, W - 35, 18, 8, "#fff2b0");
+  if (sky === "dusk") disc(ctx, W - 42, 50, 11, "#ffb35a");
   if (sky === "night") {
     disc(ctx, 40, 16, 6, "#f4f1de");
     for (let k = 0; k < 30; k++) {
       const h = hash(k + 500);
       const twinkle = hash(k + Math.floor(anim / 700)) % 7 === 0;
       ctx.fillStyle = twinkle ? "#8088b8" : "#e8ecff";
-      ctx.fillRect(h % W, (h >>> 9) % HORIZON, 1, 1);
+      ctx.fillRect(h % W, ((h >>> 9) % (HORIZON + OY)) - OY, 1, 1);
     }
   }
   const bands = SKY[sky];
   bands.forEach((color, i) => {
     ctx.fillStyle = color;
+    // The top band stretches up over any extra sky.
+    const y = i === 0 ? -OY : Math.round((i * HORIZON) / bands.length);
     ctx.fillRect(
       0,
-      Math.round((i * HORIZON) / bands.length),
+      y,
       W,
-      i === bands.length - 1 ? H : HORIZON / bands.length + 1,
+      i === bands.length - 1 ? H : HORIZON / bands.length + 1 + (i === 0 ? OY : 0),
     );
   });
 }
 
 export function drawScene(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number): void {
+  W = ctx.canvas.width;
+  OY = Math.max(0, ctx.canvas.height - H);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.imageSmoothingEnabled = false;
   ctx.globalCompositeOperation = "source-over";
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, ctx.canvas.height);
+  resetTransform(ctx);
 
   if (input.mode === "camp") drawCamp(ctx, input, anim);
   else drawQuest(ctx, input, anim);
@@ -424,14 +465,16 @@ export function drawScene(ctx: CanvasRenderingContext2D, input: SceneInput, anim
   if (tint) {
     ctx.globalCompositeOperation = "source-atop";
     ctx.fillStyle = tint;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(0, -OY, W, H + OY);
   }
   ctx.globalCompositeOperation = "destination-over";
   drawSky(ctx, input.sky, anim);
   ctx.globalCompositeOperation = "source-over";
 
   if (input.mode === "camp") {
+    ctx.translate(Math.round((W - BASE_W) / 2), 0);
     drawFire(ctx, anim);
     drawCampTalk(ctx, input);
+    resetTransform(ctx);
   }
 }

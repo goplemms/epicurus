@@ -1,26 +1,101 @@
+/* The scene fills the window; the timer bar sits under it; everything else is in a drawer. */
+.quest {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.quest-stage {
+  flex: 1;
+  min-height: 12rem;
+  position: relative;
+  background: #14131a;
+}
 .quest-scene {
   display: block;
   width: 100%;
-  aspect-ratio: 200 / 96;
+  height: 100%;
+  object-fit: contain;
   image-rendering: pixelated;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #8fd3f0;
 }
-.quest-timer {
+.quest-hud {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  font:
+    600 0.85rem / 1 ui-monospace,
+    "SF Mono",
+    Menlo,
+    monospace;
+}
+.quest-hud span {
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  background: rgba(20, 19, 26, 0.7);
+  color: #f6eedc;
+}
+.quest-hud strong {
+  color: #ffd84a;
+}
+.quest-toasts {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 1.5rem);
+  pointer-events: none;
+}
+.quest-toast {
+  padding: 0.45rem 0.9rem;
+  border-radius: 4px;
+  background: rgba(20, 19, 26, 0.8);
+  color: #ffd84a;
+  font-size: 0.9rem;
+  animation: quest-toast 6s ease forwards;
+}
+@keyframes quest-toast {
+  0% {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+  8%,
+  80% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.quest-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.75rem 1.5rem;
   align-items: center;
-  justify-content: space-between;
-  margin: 1rem 0 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.quest-time {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  column-gap: 0.75rem;
 }
 .quest-label {
+  grid-column: 1 / -1;
   color: var(--muted);
+  font-size: 0.85em;
 }
 .quest-clock {
   font:
-    600 3rem / 1.1 ui-monospace,
+    600 2.4rem / 1.1 ui-monospace,
     "SF Mono",
     Menlo,
     monospace;
@@ -28,12 +103,11 @@
 }
 .quest-pips {
   display: flex;
-  gap: 0.35rem;
-  margin-top: 0.35rem;
+  gap: 0.3rem;
 }
 .quest-pips span {
-  width: 0.6rem;
-  height: 0.6rem;
+  width: 0.55rem;
+  height: 0.55rem;
   border: 1px solid var(--accent);
   border-radius: 2px;
 }
@@ -44,35 +118,38 @@
   display: flex;
   gap: 0.5rem;
 }
-.quest-buttons button.primary {
+.quest button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--bg);
 }
-button:disabled {
+.quest button:disabled {
   opacity: 0.5;
   cursor: default;
 }
-.quest-stats {
-  color: var(--muted);
-  font-size: 0.9em;
-}
-.quest-settings {
-  border-top: 1px solid var(--line);
-  padding: 0.6rem 0;
-}
-.quest-settings summary {
-  cursor: pointer;
-}
-.quest-member,
-.quest-duration {
+.quest-durations {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
   align-items: center;
-  margin: 0.4rem 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 0.85em;
+  color: var(--muted);
 }
-.quest-settings input,
-.quest-settings select {
+.quest-durations legend {
+  float: left;
+  padding: 0;
+  margin-right: 0.25rem;
+}
+.quest-durations label {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+.quest input,
+.quest select {
   font: inherit;
   padding: 0.25rem 0.5rem;
   border: 1px solid var(--line);
@@ -80,32 +157,95 @@ button:disabled {
   background: var(--card);
   color: var(--fg);
 }
-.quest-member input {
-  flex: 1;
-  min-width: 0;
+.quest-durations input {
+  width: 3.75rem;
 }
-.quest-duration {
-  justify-content: flex-start;
-}
-.quest-duration input {
-  width: 5rem;
+.quest-drawer-toggle {
   margin-left: auto;
 }
-.quest-duration {
-  max-width: 16rem;
+
+/* The drawer slides in from the right, or up from the bottom on narrow screens. */
+.quest-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(26rem, 100%);
+  overflow-y: auto;
+  padding: 1rem 1.25rem 2rem;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.25);
+  transform: translateX(105%);
+  transition: transform 0.2s ease;
+}
+.quest-drawer[data-open="true"] {
+  transform: none;
+}
+@media (max-width: 640px) {
+  .quest-drawer {
+    top: auto;
+    left: 0;
+    width: auto;
+    max-height: 75%;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 12px 12px 0 0;
+    transform: translateY(105%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-drawer {
+    transition: none;
+  }
+  .quest-toast {
+    animation-duration: 0.01s;
+    animation-delay: 6s;
+  }
+}
+.quest-drawer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.quest-drawer h2 {
+  font-size: 1.1em;
+  font-weight: normal;
+  margin: 0;
+}
+.quest-stats {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+.quest-section {
+  border-top: 1px solid var(--line);
+  padding: 0.75rem 0;
+}
+.quest-section h2 {
+  margin-bottom: 0.5rem;
 }
 .quest-note {
   color: var(--muted);
   font-size: 0.9em;
-  margin-bottom: 0;
 }
-.quest-purse {
-  margin: 0.5rem 0 0;
+.quest-member {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.5rem 0;
 }
-.quest-event {
-  min-height: 1.55em;
-  color: var(--accent);
-  font-size: 0.9em;
+.quest-member input {
+  flex: 1;
+  min-width: 6rem;
+}
+.quest-gear-row {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+}
+.quest-gear-row button {
+  flex: 1;
 }
 .quest-class {
   color: var(--muted);
@@ -129,7 +269,7 @@ button:disabled {
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
-  margin: 0.4rem 0;
+  margin: 0.5rem 0;
 }
 .quest-branch-name {
   width: 100%;

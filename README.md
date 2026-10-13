@@ -55,6 +55,10 @@ rm -r toys/my-toy/api   # unless it needs a backend
 Edit `meta.ts` and `App.tsx`. The home page and the build pick the toy
 up on their own. Folders starting with `_` are skipped.
 
+A toy that wants the whole window (a game, a canvas) mounts with
+`mountToy(meta, <App />, { layout: "full" })` and gets a slim header
+instead of the reading column.
+
 ## Running locally
 
 ```sh

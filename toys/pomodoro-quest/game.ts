@@ -65,8 +65,12 @@ export interface Game {
 export interface State extends Game {
   /** Bumped each time a phase runs out, so the chime plays once per finish. */
   chimes: number;
-  /** The latest thing worth telling the player. */
-  event: string | null;
+  /** The latest thing worth telling the player; the id tells repeats apart. */
+  event: { text: string; id: number } | null;
+}
+
+function note(s: State, text: string): State["event"] {
+  return { text, id: (s.event?.id ?? 0) + 1 };
 }
 
 export type Action =
@@ -125,8 +129,8 @@ function finishPhase(s: State): State {
   };
   const loot = rollLoot(next.run.heroes, t.endsAt ?? 0, perks(next.legacy.owned).lootChance);
   return loot
-    ? { ...next, run: { ...next.run, heroes: loot.heroes }, event: loot.text }
-    : { ...next, event: "Quest complete." };
+    ? { ...next, run: { ...next.run, heroes: loot.heroes }, event: note(s, loot.text) }
+    : { ...next, event: note(s, "Quest complete.") };
 }
 
 export function reducer(s: State, a: Action): State {
@@ -188,7 +192,7 @@ export function reducer(s: State, a: Action): State {
       return {
         ...s,
         run: { ...s.run, gold: s.run.gold - cost, heroes: [...s.run.heroes, hero] },
-        event: `${hero.name || "A new hero"} joined the party.`,
+        event: note(s, `${hero.name || "A new hero"} joined the party.`),
       };
     }
     case "retire": {
@@ -206,7 +210,10 @@ export function reducer(s: State, a: Action): State {
         run: newRun(leader, legacy.owned),
         timer:
           s.timer.phase === "focus" ? freshTimer("focus", s.durations, s.timer.streak) : s.timer,
-        event: `The party retired with honor: +${gained} renown. ${leader.name || "Your leader"} sets out again.`,
+        event: note(
+          s,
+          `The party retired with honor: +${gained} renown. ${leader.name || "Your leader"} sets out again.`,
+        ),
       };
     }
     case "buyNode": {

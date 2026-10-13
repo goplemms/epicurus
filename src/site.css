@@ -72,3 +72,19 @@ button {
   color: var(--fg);
   cursor: pointer;
 }
+.toy-full {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+.toy-full-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.4rem 1rem;
+  font-size: 0.9em;
+  border-bottom: 1px solid var(--line);
+}
+.toy-full-bar h1 {
+  font-size: 1.1em;
+}
