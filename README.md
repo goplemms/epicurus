@@ -24,6 +24,7 @@ A personal site for small toy apps: a break from the long-running projects.
 | --------- | -------------------------------------------------- |
 | Frontend  | React 19, TypeScript (strict), Vite                |
 | Lint/fmt  | Biome                                              |
+| Tests     | Vitest (`*.test.ts` next to the code)              |
 | Packages  | pnpm                                               |
 | API       | Python, FastAPI, uv, Ruff, pyright (strict), pytest |
 | Database  | SQLite (stdlib `sqlite3`)                          |
@@ -60,6 +61,7 @@ up on their own. Folders starting with `_` are skipped.
 pnpm install
 pnpm dev          # http://localhost:5173
 pnpm check        # Biome + tsc
+pnpm test         # Vitest, for toys with logic worth pinning down
 pnpm build        # outputs dist/
 ```
 

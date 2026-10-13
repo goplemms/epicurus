@@ -1,3 +1,4 @@
+import { cycleMs, type Hero, hash, POOF_MS, WALK_MS } from "./economy";
 import {
   drawSprite,
   HEROES,
@@ -8,6 +9,8 @@ import {
   LEGS,
   MONSTER_KINDS,
   MONSTERS,
+  type MonsterKind,
+  type Palette,
   type Sprite,
 } from "./sprites";
 
@@ -17,11 +20,6 @@ const GROUND = 76;
 /** Where the sky ends; dunes cover what is below it. */
 const HORIZON = 60;
 
-export interface Member {
-  name: string;
-  cls: HeroClass;
-}
-
 export type SceneMode = "idle" | "quest" | "camp";
 export type SkyKind = "day" | "dusk" | "night";
 
@@ -30,35 +28,70 @@ export interface SceneInput {
   sky: SkyKind;
   /** Ms into the current phase; the story is a pure function of it. */
   storyMs: number;
-  party: readonly Member[];
+  party: readonly Hero[];
   paused: boolean;
+  /** How long each fight lasts this session. */
+  fightMs: number;
+  area: number;
 }
 
-// A focus session is a loop of walking, meeting a monster, and fighting it.
-export const WALK_MS = 20_000;
-const FIGHT_MS = 8_000;
-export const CYCLE_MS = 30_000;
 const HIT_MS = 500;
 /** Ground scroll speed in px per ms. */
 const SPEED = 0.012;
 const MONSTER_X = 128;
 
-/** Monsters beaten after this much focus time. */
-export function foesFelled(focusMs: number): number {
-  return Math.floor(focusMs / CYCLE_MS);
+function distance(storyMs: number, cycle: number): number {
+  const cycles = Math.floor(storyMs / cycle);
+  return (cycles * WALK_MS + Math.min(storyMs % cycle, WALK_MS)) * SPEED;
 }
 
-function hash(n: number): number {
-  let x = Math.imul(n | 0, 0x9e3779b1);
-  x ^= x >>> 15;
-  x = Math.imul(x, 0x85ebca77);
-  x ^= x >>> 13;
-  return x >>> 0;
+/** How each area looks: its land, and recolored monsters. */
+interface Look {
+  far: string;
+  near: string;
+  ground: string;
+  line: string;
+  pebble: string;
+  plant: string;
+  monsters: Partial<Record<MonsterKind, Palette>>;
 }
 
-function distance(storyMs: number): number {
-  const cycles = Math.floor(storyMs / CYCLE_MS);
-  return (cycles * WALK_MS + Math.min(storyMs % CYCLE_MS, WALK_MS)) * SPEED;
+const LOOKS: readonly Look[] = [
+  {
+    far: "#dcae6a",
+    near: "#e8bf7c",
+    ground: "#efcf8f",
+    line: "#d9b06a",
+    pebble: "#c9a465",
+    plant: "#6f9a48",
+    monsters: {},
+  },
+  {
+    far: "#a8503a",
+    near: "#c46a48",
+    ground: "#d99a6c",
+    line: "#b8714a",
+    pebble: "#a85c3c",
+    plant: "#5d7a3a",
+    monsters: {
+      slime: { G: "#9a6ad0", g: "#6a449a" },
+      scorpion: { B: "#3a3a48", T: "#2a2a36", C: "#2a2a36", L: "#1e1e28" },
+      mummy: { M: "#e8e4f0", m: "#b0aac0", E: "#40e0ff" },
+    },
+  },
+];
+
+function lookFor(area: number): Look {
+  return LOOKS[area] ?? LOOKS[LOOKS.length - 1] ?? (LOOKS[0] as Look);
+}
+
+/** Gear shows as color: the weapon for weapon tier, the headgear for armor tier. */
+const TIER_COLORS: readonly (string | null)[] = [null, "#c07a3a", "#a8c8e8", "#ffd84a"];
+
+function heroPalette(h: Hero): Palette {
+  const w = TIER_COLORS[h.weapon];
+  const a = TIER_COLORS[h.armor];
+  return { ...HEROES[h.cls].palette, ...(w ? { W: w } : {}), ...(a ? { H: a } : {}) };
 }
 
 const SKY: Record<SkyKind, readonly string[]> = {
@@ -122,12 +155,12 @@ function drawDunes(
   }
 }
 
-function drawGround(ctx: CanvasRenderingContext2D, offset: number) {
-  ctx.fillStyle = "#efcf8f";
+function drawGround(ctx: CanvasRenderingContext2D, offset: number, look: Look) {
+  ctx.fillStyle = look.ground;
   ctx.fillRect(0, GROUND, W, H - GROUND);
-  ctx.fillStyle = "#d9b06a";
+  ctx.fillStyle = look.line;
   ctx.fillRect(0, GROUND, W, 1);
-  ctx.fillStyle = "#c9a465";
+  ctx.fillStyle = look.pebble;
   const tile = 23;
   for (let i = Math.floor(offset / tile) - 1; i * tile - offset < W + tile; i++) {
     const h = hash(i);
@@ -135,27 +168,28 @@ function drawGround(ctx: CanvasRenderingContext2D, offset: number) {
   }
 }
 
-function drawCacti(ctx: CanvasRenderingContext2D, offset: number) {
+function drawCacti(ctx: CanvasRenderingContext2D, offset: number, color: string) {
   const tile = 140;
   for (let i = Math.floor(offset / tile) - 1; i * tile - offset < W + tile; i++) {
     const h = hash(i * 13 + 5);
     if (h % 2) continue;
-    drawSprite(ctx, CACTUS, { C: "#6f9a48" }, i * tile + (h % 60) - offset, GROUND - 13);
+    drawSprite(ctx, CACTUS, { C: color }, i * tile + (h % 60) - offset, GROUND - 13);
   }
 }
 
 function drawHero(
   ctx: CanvasRenderingContext2D,
-  m: Member,
+  m: Hero,
   x: number,
   feetY: number,
   opts: { legs?: Sprite; flip?: boolean; lift?: number } = {},
 ) {
-  const hero = HEROES[m.cls];
+  const sprite = HEROES[m.cls].sprite;
+  const palette = heroPalette(m);
   const top = feetY - 15 - (opts.lift ?? 0);
   const flip = opts.flip ?? false;
-  drawSprite(ctx, hero.sprite, hero.palette, x, top, { flip });
-  if (opts.legs) drawSprite(ctx, opts.legs, hero.palette, x, top + 12, { flip });
+  drawSprite(ctx, sprite, palette, x, top, { flip });
+  if (opts.legs) drawSprite(ctx, opts.legs, palette, x, top + 12, { flip });
 }
 
 function drawBubble(
@@ -182,19 +216,21 @@ const STRIKE: Record<HeroClass, string> = {
 };
 
 function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number) {
-  const { party, storyMs } = input;
+  const { party, storyMs, fightMs } = input;
+  const look = lookFor(input.area);
   const idle = input.mode === "idle";
-  const cycle = Math.floor(storyMs / CYCLE_MS);
-  const c = storyMs % CYCLE_MS;
+  const cycleLen = cycleMs(fightMs);
+  const cycle = Math.floor(storyMs / cycleLen);
+  const c = storyMs % cycleLen;
   const walking = !idle && !input.paused && c < WALK_MS;
   const fightT = c - WALK_MS;
-  const fighting = !idle && fightT >= 0 && fightT < FIGHT_MS;
-  const offset = distance(storyMs);
+  const fighting = !idle && fightT >= 0 && fightT < fightMs;
+  const offset = distance(storyMs, cycleLen);
 
-  drawDunes(ctx, offset * 0.15, 52, 6, 1, "#dcae6a");
-  drawDunes(ctx, offset * 0.4, 64, 4, 4, "#e8bf7c");
-  drawCacti(ctx, offset * 0.7);
-  drawGround(ctx, offset);
+  drawDunes(ctx, offset * 0.15, 52, 6, 1, look.far);
+  drawDunes(ctx, offset * 0.4, 64, 4, 4, look.near);
+  drawCacti(ctx, offset * 0.7, look.plant);
+  drawGround(ctx, offset, look);
   if (idle) drawSprite(ctx, SIGN, { P: "#8b5a2b", p: "#5e3a1a" }, 128, GROUND - 7);
 
   const hit = Math.floor(fightT / HIT_MS);
@@ -211,11 +247,12 @@ function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: numbe
   if (idle) return;
   const kind = MONSTER_KINDS[hash(cycle) % MONSTER_KINDS.length] ?? "slime";
   const monster = MONSTERS[kind];
+  const palette = { ...monster.palette, ...look.monsters[kind] };
   const mh = monster.sprite.length;
 
-  if (fightT >= FIGHT_MS) {
+  if (fightT >= fightMs) {
     // The monster is gone: a puff of smoke and a coin.
-    const p = (fightT - FIGHT_MS) / (CYCLE_MS - WALK_MS - FIGHT_MS);
+    const p = (fightT - fightMs) / POOF_MS;
     ctx.fillStyle = `rgba(240, 236, 226, ${1 - p})`;
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2;
@@ -239,14 +276,14 @@ function drawQuest(ctx: CanvasRenderingContext2D, input: SceneInput, anim: numbe
   drawSprite(
     ctx,
     monster.sprite,
-    monster.palette,
+    palette,
     mx,
     GROUND - mh + (kind === "slime" ? wobble : 0),
     flash ? { tint: "#ffffff" } : {},
   );
 
   if (!fighting) return;
-  const hp = 1 - fightT / FIGHT_MS;
+  const hp = 1 - fightT / fightMs;
   ctx.fillStyle = "#2b2b2b";
   ctx.fillRect(MONSTER_X - 1, GROUND - mh - 6, 16, 3);
   ctx.fillStyle = "#d8404a";
@@ -275,10 +312,11 @@ const SLOT_MS = 6_000;
 
 function drawCamp(ctx: CanvasRenderingContext2D, input: SceneInput, anim: number) {
   const { party } = input;
-  drawDunes(ctx, 900, 52, 6, 1, "#dcae6a");
-  drawDunes(ctx, 900, 64, 4, 4, "#e8bf7c");
-  drawCacti(ctx, 600);
-  drawGround(ctx, 0);
+  const look = lookFor(input.area);
+  drawDunes(ctx, 900, 52, 6, 1, look.far);
+  drawDunes(ctx, 900, 64, 4, 4, look.near);
+  drawCacti(ctx, 600, look.plant);
+  drawGround(ctx, 0, look);
 
   // Tent.
   const tentX = 36;
