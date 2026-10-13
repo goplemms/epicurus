@@ -5,7 +5,9 @@ import {
   BRANCHES,
   canBuyNode,
   canRetire,
+  freeName,
   gearCost,
+  HERO_NAMES,
   MAX_PARTY,
   power,
   recruitCost,
@@ -19,7 +21,15 @@ import { meta } from "./meta";
 import { BASE_W, drawScene, H, type SceneInput } from "./scene";
 import { HERO_CLASSES, type HeroClass } from "./sprites";
 import { load, save } from "./storage";
-import { elapsedAt, isRunning, isUntouched, LONG_EVERY, type Phase, remainingAt } from "./timer";
+import {
+  DURATION_CHOICES,
+  elapsedAt,
+  isRunning,
+  isUntouched,
+  LONG_EVERY,
+  type Phase,
+  remainingAt,
+} from "./timer";
 import "./quest.css";
 
 let audio: AudioContext | null = null;
@@ -131,14 +141,32 @@ function clock(ms: number): string {
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** A name picked from the list; a name from an older save stays selectable. */
+function NameSelect(props: { label: string; value: string; onChange: (name: string) => void }) {
+  const names = HERO_NAMES.includes(props.value) ? HERO_NAMES : [props.value, ...HERO_NAMES];
+  return (
+    <select
+      aria-label={props.label}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+    >
+      {names.map((n) => (
+        <option key={n} value={n}>
+          {n || "(no name)"}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }) {
   const { run, legacy } = state;
   const gold = Math.floor(run.gold);
   const taken = new Set(run.heroes.map((h) => h.cls));
-  const [cls, setCls] = useState<HeroClass>(
-    () => HERO_CLASSES.find((c) => !taken.has(c)) ?? "knight",
-  );
-  const [name, setName] = useState("");
+  const [pickedCls, setCls] = useState<HeroClass | null>(null);
+  const cls = pickedCls ?? HERO_CLASSES.find((c) => !taken.has(c)) ?? "knight";
+  const [picked, setName] = useState<string | null>(null);
+  const name = picked ?? freeName(run.heroes);
   const cost = recruitCost(run.heroes, legacy.owned);
 
   return (
@@ -147,11 +175,10 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
       {run.heroes.map((h, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: party slots are positional
         <div key={i} className="quest-member">
-          <input
-            aria-label={`Hero ${i + 1} name`}
+          <NameSelect
+            label={`Hero ${i + 1} name`}
             value={h.name}
-            maxLength={16}
-            onChange={(e) => dispatch({ type: "rename", hero: i, name: e.target.value })}
+            onChange={(name) => dispatch({ type: "rename", hero: i, name })}
           />
           <span className="quest-class">{h.cls}</span>
           <div className="quest-gear-row">
@@ -176,13 +203,7 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
       ))}
       {cost !== null && run.heroes.length < MAX_PARTY && (
         <div className="quest-member quest-recruit">
-          <input
-            aria-label="New hero name"
-            placeholder="New hero"
-            value={name}
-            maxLength={16}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <NameSelect label="New hero name" value={name} onChange={setName} />
           <select
             aria-label="New hero class"
             value={cls}
@@ -201,8 +222,9 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
             type="button"
             disabled={gold < cost}
             onClick={() => {
-              dispatch({ type: "recruit", name: name || capitalize(cls), cls });
-              setName("");
+              dispatch({ type: "recruit", name, cls });
+              setName(null);
+              setCls(null);
             }}
           >
             Recruit · {cost}g
@@ -290,8 +312,8 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
 function TimerSettings({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }) {
   const { durations } = state;
   const setDuration = (phase: Phase, value: string) => {
-    const n = Math.round(Number(value));
-    if (Number.isFinite(n) && n >= 1 && n <= 120) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) {
       dispatch({ type: "durations", durations: { ...durations, [phase]: n } });
     }
   };
@@ -310,13 +332,15 @@ function TimerSettings({ state, dispatch }: { state: State; dispatch: Dispatch<A
           title={phase === "long" ? `After every ${LONG_EVERY} quests` : undefined}
         >
           {name}
-          <input
-            type="number"
-            min={1}
-            max={120}
-            value={durations[phase]}
-            onChange={(e) => setDuration(phase, e.target.value)}
-          />
+          <select value={durations[phase]} onChange={(e) => setDuration(phase, e.target.value)}>
+            {[...new Set([...DURATION_CHOICES[phase], durations[phase]])]
+              .sort((a, b) => a - b)
+              .map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+          </select>
         </label>
       ))}
     </fieldset>

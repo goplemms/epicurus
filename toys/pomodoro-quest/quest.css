@@ -148,7 +148,6 @@
   gap: 0.35rem;
   align-items: center;
 }
-.quest input,
 .quest select {
   font: inherit;
   padding: 0.25rem 0.5rem;
@@ -156,9 +155,6 @@
   border-radius: 6px;
   background: var(--card);
   color: var(--fg);
-}
-.quest-durations input {
-  width: 3.75rem;
 }
 .quest-drawer-toggle {
   margin-left: auto;
@@ -235,7 +231,7 @@
   align-items: center;
   margin: 0.5rem 0;
 }
-.quest-member input {
+.quest-member > select:first-child {
   flex: 1;
   min-width: 6rem;
 }

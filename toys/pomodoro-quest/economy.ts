@@ -21,6 +21,31 @@ export const DEFAULT_HEROES: readonly { name: string; cls: HeroClass }[] = [
   { name: "Dot", cls: "cleric" },
 ];
 
+/** Names to pick from; heroes are named from a list rather than typed in. */
+export const HERO_NAMES: readonly string[] = [
+  "Ada",
+  "Bram",
+  "Cass",
+  "Dot",
+  "Elric",
+  "Fen",
+  "Gwen",
+  "Hale",
+  "Ione",
+  "Juno",
+  "Kit",
+  "Lark",
+  "Mira",
+  "Nell",
+  "Orrin",
+  "Pip",
+];
+
+/** The first listed name nobody in the party has yet. */
+export function freeName(heroes: readonly Hero[]): string {
+  return HERO_NAMES.find((n) => !heroes.some((h) => h.name === n)) ?? HERO_NAMES[0] ?? "Ada";
+}
+
 export function hash(n: number): number {
   let x = Math.imul(n | 0, 0x9e3779b1);
   x ^= x >>> 15;
