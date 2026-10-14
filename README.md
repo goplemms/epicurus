@@ -24,6 +24,7 @@ A personal site for small toy apps: a break from the long-running projects.
 | --------- | -------------------------------------------------- |
 | Frontend  | React 19, TypeScript (strict), Vite                |
 | Lint/fmt  | Biome                                              |
+| Tests     | Vitest (`*.test.ts` next to the code)              |
 | Packages  | pnpm                                               |
 | API       | Python, FastAPI, uv, Ruff, pyright (strict), pytest |
 | Database  | SQLite (stdlib `sqlite3`)                          |
@@ -54,12 +55,17 @@ rm -r toys/my-toy/api   # unless it needs a backend
 Edit `meta.ts` and `App.tsx`. The home page and the build pick the toy
 up on their own. Folders starting with `_` are skipped.
 
+A toy that wants the whole window (a game, a canvas) mounts with
+`mountToy(meta, <App />, { layout: "full" })` and gets a slim header
+instead of the reading column.
+
 ## Running locally
 
 ```sh
 pnpm install
 pnpm dev          # http://localhost:5173
 pnpm check        # Biome + tsc
+pnpm test         # Vitest, for toys with logic worth pinning down
 pnpm build        # outputs dist/
 ```
 

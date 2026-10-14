@@ -1,4 +1,13 @@
-import type { Member } from "./scene";
+import {
+  DEFAULT_HEROES,
+  fightMsFor,
+  type Hero,
+  type Legacy,
+  MAX_PARTY,
+  MAX_TIER,
+  power,
+} from "./economy";
+import { type Game, newRun, type Run, type Stats, today } from "./game";
 import { HERO_CLASSES, type HeroClass } from "./sprites";
 import {
   DEFAULT_DURATIONS,
@@ -8,42 +17,18 @@ import {
   type TimerState,
 } from "./timer";
 
-export interface Stats {
-  /** Local date (YYYY-MM-DD) the daily counts belong to. */
-  day: string;
-  quests: number;
-  foes: number;
-  totalFoes: number;
-}
-
-export interface Saved {
-  durations: Durations;
-  timer: TimerState;
-  stats: Stats;
-  party: Member[];
-}
-
+// The key keeps its v1 name; saves from v1 (a free party, no gold) load as a fresh run.
 const KEY = "epicurus.pomodoro-quest.v1";
 
-export const DEFAULT_PARTY: Member[] = [
-  { name: "Ada", cls: "knight" },
-  { name: "Bram", cls: "mage" },
-  { name: "Cass", cls: "archer" },
-  { name: "Dot", cls: "cleric" },
-];
+const LEADER = DEFAULT_HEROES[0] ?? { name: "Ada", cls: "knight" };
 
-export function today(now: number): string {
-  const d = new Date(now);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-export function defaults(now: number): Saved {
+export function defaults(now: number): Game {
   return {
     durations: DEFAULT_DURATIONS,
     timer: freshTimer("focus", DEFAULT_DURATIONS, 0),
     stats: { day: today(now), quests: 0, foes: 0, totalFoes: 0 },
-    party: DEFAULT_PARTY.slice(0, 3),
+    run: newRun(LEADER, []),
+    legacy: { renown: 0, owned: [], retirements: 0 },
   };
 }
 
@@ -53,6 +38,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function num(v: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+}
+
+function tier(v: unknown): number {
+  return Math.round(num(v, 0, 0, MAX_TIER));
 }
 
 function parseDurations(v: unknown): Durations {
@@ -84,39 +73,71 @@ function parseStats(v: unknown, now: number): Stats {
   return { day: fresh.day, quests: num(v["quests"], 0), foes: num(v["foes"], 0), totalFoes };
 }
 
-function parseParty(v: unknown): Member[] {
-  if (!Array.isArray(v)) return DEFAULT_PARTY.slice(0, 3);
-  const party = v.slice(0, 4).flatMap((m: unknown, i): Member[] => {
-    if (!isRecord(m)) return [];
-    const cls = HERO_CLASSES.find((c): c is HeroClass => c === m["cls"]) ?? "knight";
-    const name =
-      typeof m["name"] === "string" ? m["name"].slice(0, 16) : (DEFAULT_PARTY[i]?.name ?? "");
-    return [{ name, cls }];
-  });
-  return party.length ? party : DEFAULT_PARTY.slice(0, 3);
+function parseHero(v: unknown, i: number): Hero | null {
+  if (!isRecord(v)) return null;
+  const cls = HERO_CLASSES.find((c): c is HeroClass => c === v["cls"]) ?? "knight";
+  const name =
+    typeof v["name"] === "string" ? v["name"].slice(0, 16) : (DEFAULT_HEROES[i]?.name ?? "");
+  return { name, cls, weapon: tier(v["weapon"]), armor: tier(v["armor"]) };
 }
 
-export function load(now: number): Saved {
+function parseRun(v: unknown, v1Party: unknown, legacy: Legacy): Run {
+  if (!isRecord(v)) {
+    // A v1 save: keep its first hero as the leader of a fresh run.
+    const leader = Array.isArray(v1Party) ? parseHero(v1Party[0], 0) : null;
+    return newRun(leader ?? LEADER, legacy.owned);
+  }
+  const raw = Array.isArray(v["heroes"]) ? v["heroes"].slice(0, MAX_PARTY) : [];
+  const heroes = raw.flatMap((h: unknown, i) => parseHero(h, i) ?? []);
+  if (!heroes.length) return newRun(LEADER, legacy.owned);
+  const fightMs = fightMsFor(power(heroes));
+  return {
+    gold: num(v["gold"], 0),
+    runGold: num(v["runGold"], 0),
+    heroes,
+    paidFoes: Math.round(num(v["paidFoes"], 0)),
+    fightMs: num(v["fightMs"], fightMs, 3_000, 8_000),
+  };
+}
+
+function parseLegacy(v: unknown): Legacy {
+  if (!isRecord(v)) return { renown: 0, owned: [], retirements: 0 };
+  const owned = Array.isArray(v["owned"])
+    ? v["owned"].filter((id): id is string => typeof id === "string")
+    : [];
+  return {
+    renown: Math.round(num(v["renown"], 0)),
+    owned,
+    retirements: Math.round(num(v["retirements"], 0)),
+  };
+}
+
+/** Reads a save of any version, falling back to defaults for anything missing or malformed. */
+export function parseSave(v: unknown, now: number): Game {
+  if (!isRecord(v)) return defaults(now);
+  const durations = parseDurations(v["durations"]);
+  const legacy = parseLegacy(v["legacy"]);
+  return {
+    durations,
+    timer: parseTimer(v["timer"], durations),
+    stats: parseStats(v["stats"], now),
+    run: parseRun(v["run"], v["party"], legacy),
+    legacy,
+  };
+}
+
+export function load(now: number): Game {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return defaults(now);
-    const v: unknown = JSON.parse(raw);
-    if (!isRecord(v)) return defaults(now);
-    const durations = parseDurations(v["durations"]);
-    return {
-      durations,
-      timer: parseTimer(v["timer"], durations),
-      stats: parseStats(v["stats"], now),
-      party: parseParty(v["party"]),
-    };
+    return raw ? parseSave(JSON.parse(raw), now) : defaults(now);
   } catch {
     return defaults(now);
   }
 }
 
-export function save(s: Saved): void {
+export function save(g: Game): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    localStorage.setItem(KEY, JSON.stringify(g));
   } catch {
     // Storage can be full or blocked; the toy still works for this visit.
   }

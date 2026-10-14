@@ -1,7 +1,8 @@
 # Notes for Claude
 
 - Toys live in `toys/<slug>/` and start from `toys/_template/`. Don't edit other toys' folders.
-- Frontend: React + strict TypeScript + Vite. Run `pnpm check` and `pnpm build` before pushing.
+- Frontend: React + strict TypeScript + Vite. Run `pnpm check`, `pnpm test` and `pnpm build` before pushing.
+  Tests are Vitest files (`*.test.ts`) next to the code they cover.
   Don't loosen `tsconfig.json` strictness to get a build through.
 - A toy is listed on the home page via its `meta.ts`; there is no hand-maintained list.
 - Optional backend: Python in `toys/<slug>/api/` (uv, FastAPI, stdlib sqlite3).

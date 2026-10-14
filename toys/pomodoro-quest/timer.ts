@@ -22,6 +22,13 @@ export const LONG_EVERY = 4;
 
 export const DEFAULT_DURATIONS: Durations = { focus: 25, short: 5, long: 15 };
 
+/** The lengths offered for each phase, in minutes. */
+export const DURATION_CHOICES: Record<Phase, readonly number[]> = {
+  focus: [15, 20, 25, 30, 40, 45, 50, 60],
+  short: [3, 5, 10, 15],
+  long: [10, 15, 20, 25, 30],
+};
+
 export function phaseMs(phase: Phase, d: Durations): number {
   return d[phase] * 60_000;
 }
