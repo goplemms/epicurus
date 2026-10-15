@@ -3,18 +3,24 @@ import {
   AREAS,
   areaFor,
   BRANCHES,
+  CLASS_PERKS,
   canBuyNode,
   canRetire,
   freeName,
   gearCost,
   HERO_NAMES,
+  type Hero,
+  levelFor,
+  MAX_LEVEL,
   MAX_PARTY,
+  perkValue,
   power,
   recruitCost,
   renownFor,
   SLOTS,
   TIER_NAMES,
   TREE,
+  xpForLevel,
 } from "./economy";
 import { type Action, reducer, type State } from "./game";
 import { meta } from "./meta";
@@ -141,6 +147,35 @@ function clock(ms: number): string {
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** Level, progress to the next one, and the class perk at its current strength. */
+function Level({ hero }: { hero: Hero }) {
+  const level = levelFor(hero.xp);
+  const from = xpForLevel(level);
+  const to = xpForLevel(level + 1);
+  const max = level >= MAX_LEVEL;
+  const fill = max ? 1 : (hero.xp - from) / (to - from);
+  const perk = CLASS_PERKS[hero.cls];
+  const xpText = max ? "Max level" : `${Math.floor(hero.xp - from)} / ${to - from} XP`;
+  return (
+    <div className="quest-level" title={xpText}>
+      <span className="quest-level-num">Lv {level}</span>
+      <span
+        className="quest-xp"
+        role="progressbar"
+        aria-label={`${hero.name || "Hero"} XP`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(fill * 100)}
+      >
+        <span style={{ width: `${fill * 100}%` }} />
+      </span>
+      <span className="quest-perk">
+        {perk.name}: {perk.text(perkValue(hero))}
+      </span>
+    </div>
+  );
+}
+
 /** A name picked from the list; a name from an older save stays selectable. */
 function NameSelect(props: { label: string; value: string; onChange: (name: string) => void }) {
   const names = HERO_NAMES.includes(props.value) ? HERO_NAMES : [props.value, ...HERO_NAMES];
@@ -181,6 +216,7 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
             onChange={(name) => dispatch({ type: "rename", hero: i, name })}
           />
           <span className="quest-class">{h.cls}</span>
+          <Level hero={h} />
           <div className="quest-gear-row">
             {SLOTS.map((slot) => {
               const price = gearCost(h, slot);
@@ -247,7 +283,7 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
       <h2>Renown · {legacy.renown} to spend</h2>
       <p className="quest-note">
         {ready
-          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear and recruits start over.`
+          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear, recruits and levels start over.`
           : `Reach the ${nextArea?.name.toLowerCase() ?? "next area"} (power ${nextArea?.unlockPower ?? 0}) to be able to retire the party.`}
         {legacy.retirements > 0 &&
           ` Retired ${legacy.retirements} ${legacy.retirements === 1 ? "time" : "times"} so far.`}

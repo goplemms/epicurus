@@ -279,3 +279,28 @@
 .quest-tree button[aria-pressed="true"]:disabled {
   opacity: 1;
 }
+.quest-level {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  font-size: 0.8em;
+  color: var(--muted);
+}
+.quest-level-num {
+  width: 2.6rem;
+  color: inherit;
+  font-weight: 600;
+}
+.quest-xp {
+  flex: 0 0 4rem;
+  height: 0.35rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  overflow: hidden;
+}
+.quest-xp > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}

@@ -18,7 +18,7 @@ describe("parseSave", () => {
     expect(g.durations.focus).toBe(30);
     expect(g.timer.phase).toBe("short");
     expect(g.stats).toMatchObject({ quests: 3, foes: 150, totalFoes: 400 });
-    expect(g.run.heroes).toEqual([{ name: "Mira", cls: "mage", weapon: 0, armor: 0 }]);
+    expect(g.run.heroes).toEqual([{ name: "Mira", cls: "mage", weapon: 0, armor: 0, xp: 0 }]);
     expect(g.run.gold).toBe(0);
     expect(g.legacy).toEqual({ renown: 0, owned: [], retirements: 0 });
   });
@@ -39,7 +39,8 @@ describe("parseSave", () => {
     );
     expect(g.run.heroes[0]).toMatchObject({ weapon: 3, armor: 0 });
     expect(g.run.gold).toBe(12.5);
-    expect(g.run.fightMs).toBe(3_000);
+    expect(g.run.fightMs).toBe(1_500);
+    expect(g.run.heroes[0]?.xp).toBe(0);
     expect(g.legacy.owned).toEqual(["fortune-1"]);
   });
 

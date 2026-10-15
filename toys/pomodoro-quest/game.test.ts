@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fightMsFor, foesBeaten } from "./economy";
+import { foesBeaten, levelFor, partyFightMs, xpForLevel } from "./economy";
 import { type Action, reducer, type State } from "./game";
 import { defaults } from "./storage";
 
@@ -10,6 +10,8 @@ function fresh(): State {
   return { ...defaults(T0), chimes: 0, event: null };
 }
 
+const FIGHT = partyFightMs(fresh().run.heroes);
+
 function run(s: State, ...actions: Action[]): State {
   return actions.reduce(reducer, s);
 }
@@ -18,14 +20,13 @@ describe("earning", () => {
   it("pays gold as foes fall and a bonus on finishing", () => {
     let s = run(fresh(), { type: "toggle", now: T0 });
     s = run(s, { type: "tick", now: T0 + 5 * MIN });
-    const fight = fightMsFor(1);
-    expect(s.run.gold).toBe(foesBeaten(5 * MIN, fight));
+    expect(s.run.gold).toBe(foesBeaten(5 * MIN, FIGHT));
     expect(s.stats.foes).toBe(s.run.gold);
 
     s = run(s, { type: "tick", now: T0 + 25 * MIN });
     expect(s.timer.phase).toBe("short");
     expect(s.stats.quests).toBe(1);
-    expect(s.run.runGold).toBe(foesBeaten(25 * MIN, fight) + 10);
+    expect(s.run.runGold).toBe(foesBeaten(25 * MIN, FIGHT) + 10);
     expect(s.chimes).toBe(1);
   });
 
@@ -36,7 +37,7 @@ describe("earning", () => {
       { type: "tick", now: T0 + 10 * MIN },
       { type: "skip" },
     );
-    const earned = foesBeaten(10 * MIN, fightMsFor(1));
+    const earned = foesBeaten(10 * MIN, FIGHT);
     expect(s.run.gold).toBe(earned);
     expect(s.stats.quests).toBe(0);
     // The next focus session starts counting from zero again.
@@ -52,7 +53,27 @@ describe("earning", () => {
       { type: "toggle", now: T0 },
       { type: "tick", now: T0 + 10 * MIN },
     );
-    expect(s.run.gold).toBeCloseTo(foesBeaten(10 * MIN, fightMsFor(1)) * 1.1);
+    expect(s.run.gold).toBeCloseTo(foesBeaten(10 * MIN, FIGHT) * 1.1);
+  });
+});
+
+describe("hero levels", () => {
+  it("pays XP as foes fall, plus a finish bonus, and announces level-ups", () => {
+    let s = run(fresh(), { type: "toggle", now: T0 }, { type: "tick", now: T0 + 5 * MIN });
+    expect(s.run.heroes[0]?.xp).toBe(foesBeaten(5 * MIN, FIGHT));
+    s = run(s, { type: "tick", now: T0 + 25 * MIN });
+    const xp = foesBeaten(25 * MIN, FIGHT) + 10;
+    expect(s.run.heroes[0]?.xp).toBe(xp);
+    expect(levelFor(xp)).toBe(2);
+    expect(s.event?.text).toContain("Ada reached level 2!");
+  });
+
+  it("recruits join two levels below the party's best", () => {
+    const base = fresh();
+    const leader = { name: "Ada", cls: "knight" as const, weapon: 0, armor: 0, xp: xpForLevel(7) };
+    let s: State = { ...base, run: { ...base.run, gold: 100, heroes: [leader] } };
+    s = run(s, { type: "recruit", name: "Bo", cls: "mage" });
+    expect(levelFor(s.run.heroes[1]?.xp ?? 0)).toBe(5);
   });
 });
 
@@ -89,15 +110,15 @@ describe("retiring", () => {
         runGold: 900,
         gold: 50,
         heroes: [
-          { name: "Ada", cls: "knight", weapon: 3, armor: 3 },
-          { name: "Bo", cls: "cleric", weapon: 2, armor: 0 },
+          { name: "Ada", cls: "knight", weapon: 3, armor: 3, xp: xpForLevel(6) },
+          { name: "Bo", cls: "cleric", weapon: 2, armor: 0, xp: 0 },
         ],
       },
     };
     s = run(s, { type: "retire" });
     expect(s.legacy).toEqual({ renown: 3, owned: [], retirements: 1 });
     expect(s.run.gold).toBe(0);
-    expect(s.run.heroes).toEqual([{ name: "Ada", cls: "knight", weapon: 0, armor: 0 }]);
+    expect(s.run.heroes).toEqual([{ name: "Ada", cls: "knight", weapon: 0, armor: 0, xp: 0 }]);
   });
 
   it("applies start-of-run rewards bought before the new run earns anything", () => {

@@ -4,21 +4,33 @@ import {
   buyNode,
   canBuyNode,
   canRetire,
+  classPerks,
   fightMsFor,
   foesBeaten,
   gearCost,
+  grantXp,
   type Hero,
+  levelFor,
+  partyFightMs,
   perks,
   power,
   recruitCost,
+  recruitXp,
   renownFor,
   rollLoot,
   startingParty,
   TREE,
   WALK_MS,
+  xpForLevel,
 } from "./economy";
 
-const hero = (weapon = 0, armor = 0): Hero => ({ name: "Ada", cls: "knight", weapon, armor });
+const hero = (weapon = 0, armor = 0, xp = 0): Hero => ({
+  name: "Ada",
+  cls: "knight",
+  weapon,
+  armor,
+  xp,
+});
 
 describe("power and fights", () => {
   it("counts one per hero plus gear tiers", () => {
@@ -107,5 +119,60 @@ describe("loot", () => {
       expect(d.heroes[1]).toEqual(party[1]);
     }
     expect(rollLoot(party, 7, 0.2)).toEqual(rollLoot(party, 7, 0.2));
+  });
+});
+
+describe("hero levels", () => {
+  it("follows the 60 x n curve up to level 10", () => {
+    expect(xpForLevel(1)).toBe(0);
+    expect(xpForLevel(2)).toBe(60);
+    expect(xpForLevel(4)).toBe(360);
+    expect(xpForLevel(10)).toBe(2_700);
+    expect(levelFor(59)).toBe(1);
+    expect(levelFor(60)).toBe(2);
+    expect(levelFor(99_999)).toBe(10);
+  });
+
+  it("adds power at levels 4, 7 and 10", () => {
+    expect(power([hero(0, 0, xpForLevel(3))])).toBe(1);
+    expect(power([hero(0, 0, xpForLevel(4))])).toBe(2);
+    expect(power([hero(0, 0, xpForLevel(10))])).toBe(4);
+  });
+
+  it("stacks class perks by level", () => {
+    const mage: Hero = { ...hero(0, 0, xpForLevel(5)), cls: "mage" };
+    const archer: Hero = { ...hero(0, 0, xpForLevel(10)), cls: "archer" };
+    expect(classPerks([mage, mage, archer])).toEqual({
+      fightPct: 0,
+      goldPct: 30,
+      lootPts: 15,
+      xpPct: 0,
+    });
+  });
+
+  it("lets knights shorten fights, at most by half", () => {
+    const knight = hero(0, 0, xpForLevel(10));
+    expect(partyFightMs([knight])).toBe(Math.round(fightMsFor(power([knight])) * 0.8));
+    expect(partyFightMs([knight, knight, knight, knight])).toBe(
+      Math.round(fightMsFor(power([knight, knight, knight, knight])) * 0.5),
+    );
+  });
+
+  it("shares XP, scaled by Blessing and Veterans, and announces level-ups", () => {
+    const cleric: Hero = { ...hero(), name: "Dot", cls: "cleric" };
+    const plain = grantXp([hero(), cleric], 50, []);
+    expect(plain.heroes.map((h) => h.xp)).toEqual([51.5, 51.5]);
+    expect(plain.text).toBeNull();
+    const vet = grantXp([hero(), cleric], 50, ["veterans-1", "veterans-2"]);
+    expect(vet.heroes[0]?.xp).toBeCloseTo(64);
+    expect(vet.text).toBe("Ada reached level 2! Dot reached level 2!");
+    expect(grantXp([hero(0, 0, 2_690)], 50, []).heroes[0]?.xp).toBe(2_700);
+  });
+
+  it("starts runs at the Veterans level and recruits two below the best", () => {
+    const party = startingParty({ name: "Zed", cls: "mage" }, ["veterans-1"]);
+    expect(levelFor(party[0]?.xp ?? 0)).toBe(3);
+    expect(levelFor(recruitXp([hero(0, 0, xpForLevel(8))], []))).toBe(6);
+    expect(levelFor(recruitXp([hero()], ["veterans-1"]))).toBe(3);
   });
 });

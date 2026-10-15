@@ -1,11 +1,13 @@
 import {
   DEFAULT_HEROES,
-  fightMsFor,
   type Hero,
   type Legacy,
+  MAX_LEVEL,
   MAX_PARTY,
   MAX_TIER,
-  power,
+  MIN_FIGHT_MS,
+  partyFightMs,
+  xpForLevel,
 } from "./economy";
 import { type Game, newRun, type Run, type Stats, today } from "./game";
 import { HERO_CLASSES, type HeroClass } from "./sprites";
@@ -78,7 +80,9 @@ function parseHero(v: unknown, i: number): Hero | null {
   const cls = HERO_CLASSES.find((c): c is HeroClass => c === v["cls"]) ?? "knight";
   const name =
     typeof v["name"] === "string" ? v["name"].slice(0, 16) : (DEFAULT_HEROES[i]?.name ?? "");
-  return { name, cls, weapon: tier(v["weapon"]), armor: tier(v["armor"]) };
+  // Saves from before hero levels have no XP and load at level 1.
+  const xp = num(v["xp"], 0, 0, xpForLevel(MAX_LEVEL));
+  return { name, cls, weapon: tier(v["weapon"]), armor: tier(v["armor"]), xp };
 }
 
 function parseRun(v: unknown, v1Party: unknown, legacy: Legacy): Run {
@@ -90,13 +94,13 @@ function parseRun(v: unknown, v1Party: unknown, legacy: Legacy): Run {
   const raw = Array.isArray(v["heroes"]) ? v["heroes"].slice(0, MAX_PARTY) : [];
   const heroes = raw.flatMap((h: unknown, i) => parseHero(h, i) ?? []);
   if (!heroes.length) return newRun(LEADER, legacy.owned);
-  const fightMs = fightMsFor(power(heroes));
+  const fightMs = partyFightMs(heroes);
   return {
     gold: num(v["gold"], 0),
     runGold: num(v["runGold"], 0),
     heroes,
     paidFoes: Math.round(num(v["paidFoes"], 0)),
-    fightMs: num(v["fightMs"], fightMs, 3_000, 8_000),
+    fightMs: num(v["fightMs"], fightMs, MIN_FIGHT_MS, 8_000),
   };
 }
 

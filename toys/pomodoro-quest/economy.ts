@@ -1,11 +1,13 @@
 import type { HeroClass } from "./sprites";
 
-/** A party member and the tier (0-3) of each gear slot. */
+/** A party member, the tier (0-3) of each gear slot, and the XP that sets its level. */
 export interface Hero {
   name: string;
   cls: HeroClass;
   weapon: number;
   armor: number;
+  /** Fractional while XP bonuses apply. */
+  xp: number;
 }
 
 export type Slot = "weapon" | "armor";
@@ -58,14 +60,70 @@ export function hash(n: number): number {
 export const WALK_MS = 20_000;
 export const POOF_MS = 2_000;
 
-/** Gear tiers plus one per hero. */
+export const MAX_LEVEL = 10;
+/** XP every hero gets per foe beaten, and per finished focus session. */
+export const FOE_XP = 1;
+export const FINISH_XP = 10;
+
+/** Total XP to reach a level: going from level n to n + 1 costs 60 × n. */
+export function xpForLevel(level: number): number {
+  const l = Math.min(MAX_LEVEL, Math.max(1, Math.floor(level)));
+  return 30 * l * (l - 1);
+}
+
+export function levelFor(xp: number): number {
+  let level = 1;
+  while (level < MAX_LEVEL && xp >= xpForLevel(level + 1)) level++;
+  return level;
+}
+
+/** +1 power at levels 4, 7 and 10. */
+export function levelPower(level: number): number {
+  return Math.floor((level - 1) / 3);
+}
+
+/** One per hero, plus gear tiers and level steps. */
 export function power(heroes: readonly Hero[]): number {
-  return heroes.reduce((p, h) => p + 1 + h.weapon + h.armor, 0);
+  return heroes.reduce((p, h) => p + 1 + h.weapon + h.armor + levelPower(levelFor(h.xp)), 0);
 }
 
 /** A stronger party wins its fights faster, so a session meets more foes. */
 export function fightMsFor(p: number): number {
   return Math.max(3_000, 8_000 - 250 * p);
+}
+
+export type ClassPerkKind = "fightPct" | "goldPct" | "lootPts" | "xpPct";
+
+/** Each class turns one dial, by `per` for every level the hero has. A new class or number is an entry here. */
+export const CLASS_PERKS: Record<
+  HeroClass,
+  { name: string; kind: ClassPerkKind; per: number; text: (v: number) => string }
+> = {
+  knight: { name: "Vanguard", kind: "fightPct", per: 2, text: (v) => `${v}% shorter fights` },
+  mage: { name: "Arcana", kind: "goldPct", per: 3, text: (v) => `+${v}% gold` },
+  archer: { name: "Keen eye", kind: "lootPts", per: 1.5, text: (v) => `+${v}% loot chance` },
+  cleric: { name: "Blessing", kind: "xpPct", per: 3, text: (v) => `+${v}% party XP` },
+};
+
+/** This hero's perk value at its current level. */
+export function perkValue(hero: Hero): number {
+  return CLASS_PERKS[hero.cls].per * levelFor(hero.xp);
+}
+
+/** The party's class perks added up; heroes of the same class stack. */
+export function classPerks(heroes: readonly Hero[]): Record<ClassPerkKind, number> {
+  const total: Record<ClassPerkKind, number> = { fightPct: 0, goldPct: 0, lootPts: 0, xpPct: 0 };
+  for (const h of heroes) total[CLASS_PERKS[h.cls].kind] += perkValue(h);
+  return total;
+}
+
+/** Knights can halve a fight at most. */
+export const MIN_FIGHT_MS = 1_500;
+
+/** Fight length for this party: its power, then the knights' Vanguard. */
+export function partyFightMs(heroes: readonly Hero[]): number {
+  const cut = Math.min(50, classPerks(heroes).fightPct) / 100;
+  return Math.max(MIN_FIGHT_MS, Math.round(fightMsFor(power(heroes)) * (1 - cut)));
 }
 
 export function cycleMs(fightMs: number): number {
@@ -104,7 +162,9 @@ export type Effect =
   | { kind: "lootMult"; mult: number }
   | { kind: "startHeroes"; count: number }
   | { kind: "recruitDiscountPct"; pct: number }
-  | { kind: "heirloom"; slot: Slot; tier: number };
+  | { kind: "heirloom"; slot: Slot; tier: number }
+  | { kind: "startLevel"; level: number }
+  | { kind: "xpPct"; pct: number };
 
 export interface TreeNode {
   id: string;
@@ -190,6 +250,30 @@ export const TREE: readonly TreeNode[] = [
     name: "Leader keeps steel armor too",
     effect: { kind: "heirloom", slot: "armor", tier: 2 },
   },
+  {
+    id: "veterans-1",
+    branch: "Veterans",
+    tier: 1,
+    cost: 1,
+    name: "Runs start at level 3",
+    effect: { kind: "startLevel", level: 3 },
+  },
+  {
+    id: "veterans-2",
+    branch: "Veterans",
+    tier: 2,
+    cost: 2,
+    name: "+25% XP",
+    effect: { kind: "xpPct", pct: 25 },
+  },
+  {
+    id: "veterans-3",
+    branch: "Veterans",
+    tier: 3,
+    cost: 3,
+    name: "Runs start at level 5",
+    effect: { kind: "startLevel", level: 5 },
+  },
 ];
 
 export const BRANCHES: readonly string[] = [...new Set(TREE.map((n) => n.branch))];
@@ -207,6 +291,8 @@ export interface Perks {
   startHeroes: number;
   recruitDiscount: number;
   heirloom: Record<Slot, number>;
+  startLevel: number;
+  xpMult: number;
 }
 
 export function perks(owned: readonly string[]): Perks {
@@ -216,6 +302,8 @@ export function perks(owned: readonly string[]): Perks {
     startHeroes: 0,
     recruitDiscount: 0,
     heirloom: { weapon: 0, armor: 0 },
+    startLevel: 1,
+    xpMult: 1,
   };
   for (const node of TREE) {
     if (!owned.includes(node.id)) continue;
@@ -235,6 +323,12 @@ export function perks(owned: readonly string[]): Perks {
         break;
       case "heirloom":
         p.heirloom[e.slot] = Math.max(p.heirloom[e.slot], e.tier);
+        break;
+      case "startLevel":
+        p.startLevel = Math.max(p.startLevel, e.level);
+        break;
+      case "xpPct":
+        p.xpMult += e.pct / 100;
         break;
     }
   }
@@ -281,12 +375,35 @@ export function startingParty(
   owned: readonly string[],
 ): Hero[] {
   const p = perks(owned);
-  const heroes: Hero[] = [{ ...leader, weapon: p.heirloom.weapon, armor: p.heirloom.armor }];
+  const xp = xpForLevel(p.startLevel);
+  const heroes: Hero[] = [{ ...leader, weapon: p.heirloom.weapon, armor: p.heirloom.armor, xp }];
   for (const d of DEFAULT_HEROES) {
     if (heroes.length > p.startHeroes || heroes.length >= MAX_PARTY) break;
-    if (!heroes.some((h) => h.cls === d.cls)) heroes.push({ ...d, weapon: 0, armor: 0 });
+    if (!heroes.some((h) => h.cls === d.cls)) heroes.push({ ...d, weapon: 0, armor: 0, xp });
   }
   return heroes;
+}
+
+/** A recruit joins two levels below the party's best, so late joiners aren't dead weight. */
+export function recruitXp(heroes: readonly Hero[], owned: readonly string[]): number {
+  const best = Math.max(1, ...heroes.map((h) => levelFor(h.xp)));
+  return xpForLevel(Math.max(perks(owned).startLevel, best - 2));
+}
+
+/** Gives every hero `base` XP, scaled by Blessing and Veterans, and names anyone who levelled up. */
+export function grantXp(
+  heroes: readonly Hero[],
+  base: number,
+  owned: readonly string[],
+): { heroes: Hero[]; text: string | null } {
+  if (base <= 0) return { heroes: [...heroes], text: null };
+  const gain = base * (perks(owned).xpMult + classPerks(heroes).xpPct / 100);
+  const cap = xpForLevel(MAX_LEVEL);
+  const next = heroes.map((h) => ({ ...h, xp: Math.min(cap, h.xp + gain) }));
+  const up = next.filter((h, i) => levelFor(h.xp) > levelFor(heroes[i]?.xp ?? 0));
+  if (!up.length) return { heroes: next, text: null };
+  const text = up.map((h) => `${h.name || "A hero"} reached level ${levelFor(h.xp)}!`).join(" ");
+  return { heroes: next, text };
 }
 
 /** A finished session sometimes upgrades one piece of gear. Seeded, so it is repeatable. */
