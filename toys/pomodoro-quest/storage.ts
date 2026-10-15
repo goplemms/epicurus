@@ -7,6 +7,7 @@ import {
   MAX_TIER,
   MIN_FIGHT_MS,
   partyFightMs,
+  validSkills,
   xpForLevel,
 } from "./economy";
 import { type Game, newRun, type Run, type Stats, today } from "./game";
@@ -82,7 +83,11 @@ function parseHero(v: unknown, i: number): Hero | null {
     typeof v["name"] === "string" ? v["name"].slice(0, 16) : (DEFAULT_HEROES[i]?.name ?? "");
   // Saves from before hero levels have no XP and load at level 1.
   const xp = num(v["xp"], 0, 0, xpForLevel(MAX_LEVEL));
-  return { name, cls, weapon: tier(v["weapon"]), armor: tier(v["armor"]), xp };
+  const skills = Array.isArray(v["skills"])
+    ? v["skills"].filter((id): id is string => typeof id === "string")
+    : [];
+  const hero: Hero = { name, cls, weapon: tier(v["weapon"]), armor: tier(v["armor"]), xp, skills };
+  return { ...hero, skills: validSkills(hero) };
 }
 
 function parseRun(v: unknown, v1Party: unknown, legacy: Legacy): Run {

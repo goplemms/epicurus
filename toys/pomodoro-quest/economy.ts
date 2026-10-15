@@ -8,6 +8,8 @@ export interface Hero {
   armor: number;
   /** Fractional while XP bonuses apply. */
   xp: number;
+  /** Skill tree nodes taken, by id. */
+  skills: string[];
 }
 
 export type Slot = "weapon" | "armor";
@@ -82,9 +84,21 @@ export function levelPower(level: number): number {
   return Math.floor((level - 1) / 3);
 }
 
-/** One per hero, plus gear tiers and level steps. */
+/** One per hero, plus gear tiers, level steps and power skills; Shield wall lifts everyone else. */
 export function power(heroes: readonly Hero[]): number {
-  return heroes.reduce((p, h) => p + 1 + h.weapon + h.armor + levelPower(levelFor(h.xp)), 0);
+  const walls = heroes.reduce((n, h) => n + sumSkill([h], "allyPower"), 0);
+  return heroes.reduce(
+    (p, h) =>
+      p +
+      1 +
+      h.weapon +
+      h.armor +
+      levelPower(levelFor(h.xp)) +
+      sumSkill([h], "power") +
+      walls -
+      sumSkill([h], "allyPower"),
+    0,
+  );
 }
 
 /** A stronger party wins its fights faster, so a session meets more foes. */
@@ -110,11 +124,199 @@ export function perkValue(hero: Hero): number {
   return CLASS_PERKS[hero.cls].per * levelFor(hero.xp);
 }
 
-/** The party's class perks added up; heroes of the same class stack. */
-export function classPerks(heroes: readonly Hero[]): Record<ClassPerkKind, number> {
-  const total: Record<ClassPerkKind, number> = { fightPct: 0, goldPct: 0, lootPts: 0, xpPct: 0 };
+/** Level perks plus stat skills, added up for the party; heroes of the same class stack. */
+export function partyBonuses(heroes: readonly Hero[]): Record<ClassPerkKind, number> {
+  const total: Record<ClassPerkKind, number> = {
+    fightPct: sumSkill(heroes, "fightPct"),
+    goldPct: sumSkill(heroes, "goldPct"),
+    lootPts: sumSkill(heroes, "lootPts"),
+    xpPct: sumSkill(heroes, "xpPct"),
+  };
   for (const h of heroes) total[CLASS_PERKS[h.cls].kind] += perkValue(h);
   return total;
+}
+
+/** A skill node's effect. Stat effects stack; the rest are capstones that bend a rule. */
+export type SkillEffect =
+  | {
+      kind: ClassPerkKind | "power" | "allyPower" | "finishGold" | "gearDiscountPct";
+      value: number;
+    }
+  | { kind: "nthFoe"; value: number; gold: boolean; xp: boolean }
+  | { kind: "extraLootRoll" | "abandonFinishPct" | "restXp"; value: number };
+
+export interface SkillNode {
+  id: string;
+  cls: HeroClass;
+  branch: string;
+  /** 1-5; each needs the one before it in its branch. Tier 5 is the capstone. */
+  tier: number;
+  name: string;
+  effect: SkillEffect;
+}
+
+export const SKILL_TIERS = 5;
+export const RESPEC_COST_PER_POINT = 20;
+const ROMAN = ["I", "II", "III", "IV"] as const;
+
+/** Four stat nodes and a capstone. */
+function branch(
+  cls: HeroClass,
+  name: string,
+  stat: SkillEffect,
+  statText: string,
+  capstone: string,
+  effect: SkillEffect,
+): SkillNode[] {
+  const slug = `${cls}-${name.toLowerCase()}`;
+  return [
+    ...ROMAN.map((r, i) => ({
+      id: `${slug}-${i + 1}`,
+      cls,
+      branch: name,
+      tier: i + 1,
+      name: `${name} ${r}: ${statText}`,
+      effect: stat,
+    })),
+    { id: `${slug}-5`, cls, branch: name, tier: SKILL_TIERS, name: capstone, effect },
+  ];
+}
+
+/** Every class tree: two branches each. A new branch or class is a new entry here. */
+export const SKILLS: readonly SkillNode[] = [
+  ...branch(
+    "knight",
+    "Guardian",
+    { kind: "power", value: 1 },
+    "+1 power",
+    "Shield wall: every other hero +1 power",
+    { kind: "allyPower", value: 1 },
+  ),
+  ...branch(
+    "knight",
+    "Berserker",
+    { kind: "fightPct", value: 5 },
+    "5% shorter fights",
+    "Cleave: every 5th foe counts twice",
+    { kind: "nthFoe", value: 5, gold: true, xp: true },
+  ),
+  ...branch(
+    "mage",
+    "Alchemist",
+    { kind: "goldPct", value: 5 },
+    "+5% gold",
+    "Golden touch: finish bonus 30 gold",
+    { kind: "finishGold", value: 20 },
+  ),
+  ...branch(
+    "mage",
+    "Scholar",
+    { kind: "xpPct", value: 5 },
+    "+5% party XP",
+    "Insight: gear costs 20% less",
+    { kind: "gearDiscountPct", value: 20 },
+  ),
+  ...branch(
+    "archer",
+    "Scout",
+    { kind: "lootPts", value: 3 },
+    "+3% loot chance",
+    "Treasure hunter: loot rolls twice",
+    { kind: "extraLootRoll", value: 1 },
+  ),
+  ...branch(
+    "archer",
+    "Hunter",
+    { kind: "goldPct", value: 4 },
+    "+4% gold",
+    "Big game: every 5th foe pays double gold",
+    { kind: "nthFoe", value: 5, gold: true, xp: false },
+  ),
+  ...branch(
+    "cleric",
+    "Healer",
+    { kind: "xpPct", value: 5 },
+    "+5% party XP",
+    "Grace: quitting early pays half the finish bonus",
+    { kind: "abandonFinishPct", value: 50 },
+  ),
+  ...branch(
+    "cleric",
+    "Templar",
+    { kind: "power", value: 1 },
+    "+1 power",
+    "Sanctuary: finishing a rest gives 5 XP",
+    { kind: "restXp", value: 5 },
+  ),
+];
+
+export function skillNode(id: string): SkillNode | undefined {
+  return SKILLS.find((n) => n.id === id);
+}
+
+/** Total of one effect kind over the given heroes' taken skills. */
+export function sumSkill(heroes: readonly Hero[], kind: SkillEffect["kind"]): number {
+  let total = 0;
+  for (const h of heroes) {
+    for (const id of h.skills) {
+      const e = skillNode(id)?.effect;
+      if (e?.kind === kind) total += e.value;
+    }
+  }
+  return total;
+}
+
+/** The every-nth-foe capstones the party has, one entry per hero that took one. */
+export function nthFoeSkills(
+  heroes: readonly Hero[],
+): { value: number; gold: boolean; xp: boolean }[] {
+  return heroes.flatMap((h) =>
+    h.skills.flatMap((id) => {
+      const e = skillNode(id)?.effect;
+      return e?.kind === "nthFoe" ? [e] : [];
+    }),
+  );
+}
+
+/** One point per level after the first. */
+export function skillPoints(hero: Hero): number {
+  return levelFor(hero.xp) - 1 - hero.skills.length;
+}
+
+export function canLearn(hero: Hero, id: string): boolean {
+  const node = skillNode(id);
+  if (!node || node.cls !== hero.cls || hero.skills.includes(id) || skillPoints(hero) < 1) {
+    return false;
+  }
+  return (
+    node.tier === 1 ||
+    SKILLS.some(
+      (n) =>
+        n.cls === node.cls &&
+        n.branch === node.branch &&
+        n.tier === node.tier - 1 &&
+        hero.skills.includes(n.id),
+    )
+  );
+}
+
+export function learnSkill(hero: Hero, id: string): Hero {
+  return canLearn(hero, id) ? { ...hero, skills: [...hero.skills, id] } : hero;
+}
+
+export function respecCost(hero: Hero): number {
+  return RESPEC_COST_PER_POINT * hero.skills.length;
+}
+
+/** Keeps only skills of the hero's class whose prerequisites are also kept, within its points. */
+export function validSkills(hero: Hero): string[] {
+  let h: Hero = { ...hero, skills: [] };
+  const wanted = [...hero.skills]
+    .map((id) => skillNode(id))
+    .filter((n): n is SkillNode => n !== undefined)
+    .sort((a, b) => a.tier - b.tier);
+  for (const n of wanted) h = learnSkill(h, n.id);
+  return h.skills;
 }
 
 /** Knights can halve a fight at most. */
@@ -122,7 +324,7 @@ export const MIN_FIGHT_MS = 1_500;
 
 /** Fight length for this party: its power, then the knights' Vanguard. */
 export function partyFightMs(heroes: readonly Hero[]): number {
-  const cut = Math.min(50, classPerks(heroes).fightPct) / 100;
+  const cut = Math.min(50, partyBonuses(heroes).fightPct) / 100;
   return Math.max(MIN_FIGHT_MS, Math.round(fightMsFor(power(heroes)) * (1 - cut)));
 }
 
@@ -351,8 +553,12 @@ export function buyNode(legacy: Legacy, id: string): Legacy {
   return { ...legacy, renown: legacy.renown - node.cost, owned: [...legacy.owned, id] };
 }
 
-export function gearCost(hero: Hero, slot: Slot): number | null {
-  return GEAR_COST[hero[slot]] ?? null;
+/** The next tier's price, less the party's Insight discount (at most half). */
+export function gearCost(hero: Hero, slot: Slot, party: readonly Hero[] = []): number | null {
+  const base = GEAR_COST[hero[slot]];
+  if (base === undefined) return null;
+  const off = Math.min(50, sumSkill(party, "gearDiscountPct")) / 100;
+  return Math.round(base * (1 - off));
 }
 
 export function recruitCost(heroes: readonly Hero[], owned: readonly string[]): number | null {
@@ -376,10 +582,13 @@ export function startingParty(
 ): Hero[] {
   const p = perks(owned);
   const xp = xpForLevel(p.startLevel);
-  const heroes: Hero[] = [{ ...leader, weapon: p.heirloom.weapon, armor: p.heirloom.armor, xp }];
+  const heroes: Hero[] = [
+    { ...leader, weapon: p.heirloom.weapon, armor: p.heirloom.armor, xp, skills: [] },
+  ];
   for (const d of DEFAULT_HEROES) {
     if (heroes.length > p.startHeroes || heroes.length >= MAX_PARTY) break;
-    if (!heroes.some((h) => h.cls === d.cls)) heroes.push({ ...d, weapon: 0, armor: 0, xp });
+    if (!heroes.some((h) => h.cls === d.cls))
+      heroes.push({ ...d, weapon: 0, armor: 0, xp, skills: [] });
   }
   return heroes;
 }
@@ -397,7 +606,7 @@ export function grantXp(
   owned: readonly string[],
 ): { heroes: Hero[]; text: string | null } {
   if (base <= 0) return { heroes: [...heroes], text: null };
-  const gain = base * (perks(owned).xpMult + classPerks(heroes).xpPct / 100);
+  const gain = base * (perks(owned).xpMult + partyBonuses(heroes).xpPct / 100);
   const cap = xpForLevel(MAX_LEVEL);
   const next = heroes.map((h) => ({ ...h, xp: Math.min(cap, h.xp + gain) }));
   const up = next.filter((h, i) => levelFor(h.xp) > levelFor(heroes[i]?.xp ?? 0));

@@ -5,6 +5,7 @@ import {
   BRANCHES,
   CLASS_PERKS,
   canBuyNode,
+  canLearn,
   canRetire,
   freeName,
   gearCost,
@@ -17,7 +18,11 @@ import {
   power,
   recruitCost,
   renownFor,
+  respecCost,
+  SKILL_TIERS,
+  SKILLS,
   SLOTS,
+  skillPoints,
   TIER_NAMES,
   TREE,
   xpForLevel,
@@ -194,6 +199,65 @@ function NameSelect(props: { label: string; value: string; onChange: (name: stri
   );
 }
 
+/** One hero's tree: two branches drawn top to bottom, taken nodes filled, locked ones dashed. */
+function SkillTree(props: {
+  hero: Hero;
+  index: number;
+  gold: number;
+  running: boolean;
+  dispatch: Dispatch<Action>;
+}) {
+  const { hero, index, gold, running, dispatch } = props;
+  const nodes = SKILLS.filter((n) => n.cls === hero.cls);
+  const branches = [...new Set(nodes.map((n) => n.branch))];
+  const points = skillPoints(hero);
+  const cost = respecCost(hero);
+  return (
+    <div className="quest-skills">
+      <div className="quest-skills-head">
+        <span>
+          {points} {points === 1 ? "point" : "points"} to spend
+        </span>
+        {hero.skills.length > 0 && (
+          <button
+            type="button"
+            disabled={running || gold < cost}
+            title={running ? "Pause the timer first" : "Refund every point"}
+            onClick={() => dispatch({ type: "respec", hero: index })}
+          >
+            Respec · {cost}g
+          </button>
+        )}
+      </div>
+      <div className="quest-skill-branches">
+        {branches.map((branch) => (
+          <ol key={branch} className="quest-skill-branch" aria-label={branch}>
+            {nodes
+              .filter((n) => n.branch === branch)
+              .map((n) => {
+                const taken = hero.skills.includes(n.id);
+                const open = canLearn(hero, n.id);
+                const state = taken ? "taken" : open ? "open" : "locked";
+                return (
+                  <li key={n.id} data-state={state} data-capstone={n.tier === SKILL_TIERS}>
+                    <button
+                      type="button"
+                      aria-pressed={taken}
+                      disabled={!open}
+                      onClick={() => dispatch({ type: "learnSkill", hero: index, id: n.id })}
+                    >
+                      {n.name}
+                    </button>
+                  </li>
+                );
+              })}
+          </ol>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }) {
   const { run, legacy } = state;
   const gold = Math.floor(run.gold);
@@ -203,6 +267,7 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
   const [picked, setName] = useState<string | null>(null);
   const name = picked ?? freeName(run.heroes);
   const cost = recruitCost(run.heroes, legacy.owned);
+  const [openTree, setOpenTree] = useState<number | null>(null);
 
   return (
     <section className="quest-section">
@@ -216,10 +281,20 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
             onChange={(name) => dispatch({ type: "rename", hero: i, name })}
           />
           <span className="quest-class">{h.cls}</span>
+          <button
+            type="button"
+            className="quest-skills-toggle"
+            aria-expanded={openTree === i}
+            title={skillPoints(h) > 0 ? "Skill points to spend" : undefined}
+            onClick={() => setOpenTree(openTree === i ? null : i)}
+          >
+            Skills
+            {skillPoints(h) > 0 && <span className="quest-dot" aria-hidden="true" />}
+          </button>
           <Level hero={h} />
           <div className="quest-gear-row">
             {SLOTS.map((slot) => {
-              const price = gearCost(h, slot);
+              const price = gearCost(h, slot, run.heroes);
               return (
                 <button
                   key={slot}
@@ -235,6 +310,15 @@ function Party({ state, dispatch }: { state: State; dispatch: Dispatch<Action> }
               );
             })}
           </div>
+          {openTree === i && (
+            <SkillTree
+              hero={h}
+              index={i}
+              gold={gold}
+              running={isRunning(state.timer)}
+              dispatch={dispatch}
+            />
+          )}
         </div>
       ))}
       {cost !== null && run.heroes.length < MAX_PARTY && (
@@ -283,7 +367,7 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
       <h2>Renown · {legacy.renown} to spend</h2>
       <p className="quest-note">
         {ready
-          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear, recruits and levels start over.`
+          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear, recruits, levels and skills start over.`
           : `Reach the ${nextArea?.name.toLowerCase() ?? "next area"} (power ${nextArea?.unlockPower ?? 0}) to be able to retire the party.`}
         {legacy.retirements > 0 &&
           ` Retired ${legacy.retirements} ${legacy.retirements === 1 ? "time" : "times"} so far.`}
