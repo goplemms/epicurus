@@ -328,56 +328,49 @@
   color: var(--muted);
   margin-bottom: 0.4rem;
 }
-.quest-skill-branches {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
-}
-.quest-skill-branch {
+.quest-picks {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
-.quest-skill-branch li {
-  position: relative;
+.quest-pick-row {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 1fr;
+  gap: 0.4rem;
+  align-items: stretch;
 }
-/* The line that joins each node to the one above it. */
-.quest-skill-branch li + li::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: -0.5rem;
-  height: 0.5rem;
-  border-left: 2px solid var(--muted);
-  opacity: 0.5;
+.quest-pick-level {
+  align-self: center;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--muted);
 }
-.quest-skill-branch li[data-state="taken"] + li::before {
-  border-color: var(--accent);
-  opacity: 1;
-}
-.quest-skill-branch button {
-  width: 100%;
+.quest-pick-row button {
   padding: 0.35rem 0.4rem;
   font-size: 0.75em;
   line-height: 1.25;
   text-align: center;
 }
-.quest-skill-branch li[data-state="taken"] button {
+.quest-pick-row[data-capstone="true"] button {
+  font-weight: 600;
+  padding: 0.5rem 0.4rem;
+}
+.quest-pick-row button[data-state="taken"] {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: var(--accent);
   opacity: 1;
 }
-.quest-skill-branch li[data-state="open"] button {
+.quest-pick-row button[data-state="open"] {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
 }
-.quest-skill-branch li[data-state="locked"] button {
-  border-style: dashed;
+.quest-pick-row button[data-state="passed"] {
+  text-decoration: line-through;
+  opacity: 0.45;
 }
-.quest-skill-branch li[data-capstone="true"] button {
-  font-weight: 600;
-  padding: 0.5rem 0.4rem;
+.quest-pick-row button[data-state="locked"] {
+  border-style: dashed;
 }

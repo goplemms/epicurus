@@ -24,6 +24,7 @@ import {
   respecCost,
   rollLoot,
   type Slot,
+  skillNode,
   startingParty,
   sumSkill,
 } from "./economy";
@@ -138,17 +139,45 @@ function payFoes(s: State, now: number): State {
   }
   const gold = (owed + extraGold) * area.goldPerFoe;
   const { state: learned, text } = learn(earn(s, gold), (owed + extraXp) * FOE_XP);
+  // Bounty and Poacher: every nth foe of the session drops loot for sure.
+  let heroes = learned.run.heroes;
+  const found: string[] = [];
+  for (const n of nthFoeLootSkills(s.run.heroes)) {
+    for (let k = Math.floor(s.run.paidFoes / n) + 1; k <= Math.floor(beaten / n); k++) {
+      const loot = rollLoot(heroes, (s.timer.endsAt ?? 0) + k * n * 104_729, 1);
+      if (loot) {
+        heroes = loot.heroes;
+        found.push(loot.text);
+      }
+    }
+  }
   const paid: State = {
     ...learned,
-    run: { ...learned.run, paidFoes: beaten },
+    run: { ...learned.run, heroes, paidFoes: beaten },
     stats: { ...s.stats, foes: s.stats.foes + owed, totalFoes: s.stats.totalFoes + owed },
   };
-  return text ? { ...paid, chimes: paid.chimes + 1, event: note(s, text) } : paid;
+  const news = [...found, text].filter(Boolean).join(" ");
+  return news ? { ...paid, chimes: paid.chimes + 1, event: note(s, news) } : paid;
 }
 
 /** The finish bonus, raised by Golden touch. */
 function finishGold(heroes: readonly Hero[]): number {
   return FINISH_BONUS + sumSkill(heroes, "finishGold");
+}
+
+/** Finish XP, raised by Miracle. */
+function finishXp(heroes: readonly Hero[]): number {
+  return FINISH_XP + sumSkill(heroes, "finishXp");
+}
+
+/** The nth of each Bounty or Poacher the party has. */
+function nthFoeLootSkills(heroes: readonly Hero[]): number[] {
+  return heroes.flatMap((h) =>
+    h.skills.flatMap((id) => {
+      const e = skillNode(id)?.effect;
+      return e?.kind === "nthFoeLoot" ? [e.value] : [];
+    }),
+  );
 }
 
 function finishPhase(s: State): State {
@@ -159,7 +188,7 @@ function finishPhase(s: State): State {
     const rested = learn(next, sumSkill(s.run.heroes, "restXp"));
     return rested.text ? { ...rested.state, event: note(s, rested.text) } : rested.state;
   }
-  const learned = learn(earn(next, finishGold(next.run.heroes)), FINISH_XP);
+  const learned = learn(earn(next, finishGold(next.run.heroes)), finishXp(next.run.heroes));
   next = learned.state;
   next = {
     ...next,
@@ -205,7 +234,10 @@ export function reducer(s: State, a: Action): State {
       const pct = sumSkill(s.run.heroes, "abandonFinishPct") / 100;
       if (pct > 0 && s.timer.phase === "focus" && !isUntouched(s.timer, s.durations)) {
         // Grace: quitting early still pays part of the finish bonus.
-        const learned = learn(earn(s, finishGold(s.run.heroes) * pct), FINISH_XP * pct);
+        const learned = learn(
+          earn(s, finishGold(s.run.heroes) * pct),
+          finishXp(s.run.heroes) * pct,
+        );
         next = learned.text ? { ...learned.state, event: note(s, learned.text) } : learned.state;
       }
       return {

@@ -84,7 +84,7 @@ describe("hero levels", () => {
   });
 });
 
-describe("skill trees", () => {
+describe("skill picks", () => {
   const withLeader = (skills: string[], xp = xpForLevel(10)): State => {
     const base = fresh();
     const leader = { name: "Ada", cls: "knight" as const, weapon: 0, armor: 0, xp, skills };
@@ -93,8 +93,8 @@ describe("skill trees", () => {
 
   it("learns a node with a free point and respecs for gold while paused", () => {
     let s = withLeader([], xpForLevel(2));
-    s = run(s, { type: "learnSkill", hero: 0, id: "knight-guardian-1" });
-    expect(s.run.heroes[0]?.skills).toEqual(["knight-guardian-1"]);
+    s = run(s, { type: "learnSkill", hero: 0, id: "knight-2a" });
+    expect(s.run.heroes[0]?.skills).toEqual(["knight-2a"]);
     expect(run(s, { type: "respec", hero: 0 })).toBe(s);
     s = { ...s, run: { ...s.run, gold: 25 } };
     s = run(s, { type: "respec", hero: 0 });
@@ -103,13 +103,24 @@ describe("skill trees", () => {
   });
 
   it("Cleave counts every 5th foe twice, for gold and XP", () => {
-    const cleave = [1, 2, 3, 4, 5].map((t) => `knight-berserker-${t}`);
-    let s = withLeader(cleave);
+    let s = withLeader(["knight-10b"]);
     const fight = s.run.fightMs;
     s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 10 * MIN });
     const foes = foesBeaten(10 * MIN, fight);
     expect(s.run.gold).toBe(foes + Math.floor(foes / 5));
     expect(s.run.heroes[0]?.xp).toBeCloseTo(xpForLevel(10));
+  });
+
+  it("Bounty drops loot on every 10th foe", () => {
+    let s = withLeader(["knight-8b"], xpForLevel(8));
+    const fight = s.run.fightMs;
+    s = run(s, { type: "toggle", now: T0 });
+    let t = 0;
+    while (foesBeaten(t, fight) < 10) t += 1_000;
+    s = run(s, { type: "tick", now: T0 + t });
+    const h = s.run.heroes[0];
+    expect((h?.weapon ?? 0) + (h?.armor ?? 0)).toBe(1);
+    expect(s.event?.text).toContain("Loot!");
   });
 
   it("Grace pays half the finish bonus when a started session is skipped", () => {
@@ -119,8 +130,8 @@ describe("skill trees", () => {
       cls: "cleric" as const,
       weapon: 0,
       armor: 0,
-      xp: xpForLevel(6),
-      skills: [1, 2, 3, 4, 5].map((t) => `cleric-healer-${t}`),
+      xp: xpForLevel(10),
+      skills: ["cleric-10a"],
     };
     let s: State = { ...base, run: { ...base.run, heroes: [cleric] } };
     s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 1_000 }, { type: "skip" });
@@ -135,14 +146,14 @@ describe("skill trees", () => {
       cls: "cleric" as const,
       weapon: 0,
       armor: 0,
-      xp: xpForLevel(6),
-      skills: [1, 2, 3, 4, 5].map((t) => `cleric-templar-${t}`),
+      xp: xpForLevel(8),
+      skills: ["cleric-8b"],
     };
     let s: State = { ...base, run: { ...base.run, heroes: [cleric] } };
     s = run(s, { type: "skip" });
     expect(s.timer.phase).toBe("short");
     s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 60 * MIN });
-    expect(s.run.heroes[0]?.xp).toBeGreaterThan(xpForLevel(6));
+    expect(s.run.heroes[0]?.xp).toBeGreaterThan(xpForLevel(8));
   });
 });
 

@@ -14,12 +14,13 @@ import {
   levelFor,
   MAX_LEVEL,
   MAX_PARTY,
+  PICK_LEVELS,
   perkValue,
+  pickAt,
   power,
   recruitCost,
   renownFor,
   respecCost,
-  SKILL_TIERS,
   SKILLS,
   SLOTS,
   skillPoints,
@@ -199,7 +200,7 @@ function NameSelect(props: { label: string; value: string; onChange: (name: stri
   );
 }
 
-/** One hero's tree: two branches drawn top to bottom, taken nodes filled, locked ones dashed. */
+/** One hero's picks: a row per pick level, two options each; taking one locks the other. */
 function SkillTree(props: {
   hero: Hero;
   index: number;
@@ -208,52 +209,57 @@ function SkillTree(props: {
   dispatch: Dispatch<Action>;
 }) {
   const { hero, index, gold, running, dispatch } = props;
-  const nodes = SKILLS.filter((n) => n.cls === hero.cls);
-  const branches = [...new Set(nodes.map((n) => n.branch))];
+  const level = levelFor(hero.xp);
   const points = skillPoints(hero);
   const cost = respecCost(hero);
   return (
     <div className="quest-skills">
       <div className="quest-skills-head">
         <span>
-          {points} {points === 1 ? "point" : "points"} to spend
+          {points} {points === 1 ? "pick" : "picks"} waiting
         </span>
         {hero.skills.length > 0 && (
           <button
             type="button"
             disabled={running || gold < cost}
-            title={running ? "Pause the timer first" : "Refund every point"}
+            title={running ? "Pause the timer first" : "Undo every pick"}
             onClick={() => dispatch({ type: "respec", hero: index })}
           >
             Respec · {cost}g
           </button>
         )}
       </div>
-      <div className="quest-skill-branches">
-        {branches.map((branch) => (
-          <ol key={branch} className="quest-skill-branch" aria-label={branch}>
-            {nodes
-              .filter((n) => n.branch === branch)
-              .map((n) => {
-                const taken = hero.skills.includes(n.id);
-                const open = canLearn(hero, n.id);
-                const state = taken ? "taken" : open ? "open" : "locked";
+      <ol className="quest-picks">
+        {PICK_LEVELS.map((at) => {
+          const taken = pickAt(hero, at);
+          const row = taken ? "done" : at <= level ? "open" : "locked";
+          return (
+            <li
+              key={at}
+              className="quest-pick-row"
+              data-state={row}
+              data-capstone={at === MAX_LEVEL}
+            >
+              <span className="quest-pick-level">Lv {at}</span>
+              {SKILLS.filter((n) => n.cls === hero.cls && n.level === at).map((n) => {
+                const state = taken?.id === n.id ? "taken" : taken ? "passed" : row;
                 return (
-                  <li key={n.id} data-state={state} data-capstone={n.tier === SKILL_TIERS}>
-                    <button
-                      type="button"
-                      aria-pressed={taken}
-                      disabled={!open}
-                      onClick={() => dispatch({ type: "learnSkill", hero: index, id: n.id })}
-                    >
-                      {n.name}
-                    </button>
-                  </li>
+                  <button
+                    key={n.id}
+                    type="button"
+                    data-state={state}
+                    aria-pressed={state === "taken"}
+                    disabled={!canLearn(hero, n.id)}
+                    onClick={() => dispatch({ type: "learnSkill", hero: index, id: n.id })}
+                  >
+                    {n.name}
+                  </button>
                 );
               })}
-          </ol>
-        ))}
-      </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
@@ -367,7 +373,7 @@ function Renown({ state, dispatch }: { state: State; dispatch: Dispatch<Action> 
       <h2>Renown · {legacy.renown} to spend</h2>
       <p className="quest-note">
         {ready
-          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear, recruits, levels and skills start over.`
+          ? `Retiring now ends this run and earns ${gain} renown. Gold, gear, recruits, levels and picks start over.`
           : `Reach the ${nextArea?.name.toLowerCase() ?? "next area"} (power ${nextArea?.unlockPower ?? 0}) to be able to retire the party.`}
         {legacy.retirements > 0 &&
           ` Retired ${legacy.retirements} ${legacy.retirements === 1 ? "time" : "times"} so far.`}

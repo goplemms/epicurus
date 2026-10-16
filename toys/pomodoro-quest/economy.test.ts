@@ -184,58 +184,54 @@ describe("hero levels", () => {
   });
 });
 
-describe("skill trees", () => {
+describe("skill picks", () => {
   const lv = (level: number, cls: Hero["cls"] = "knight"): Hero => ({
     ...hero(0, 0, xpForLevel(level)),
     cls,
   });
   const take = (h: Hero, ...ids: string[]) => ids.reduce(learnSkill, h);
-  const guardian = [1, 2, 3, 4, 5].map((t) => `knight-guardian-${t}`);
-  const berserker = [1, 2, 3, 4, 5].map((t) => `knight-berserker-${t}`);
 
-  it("gives every class two branches of five", () => {
+  it("gives every class five either/or rows", () => {
     for (const cls of ["knight", "mage", "archer", "cleric"] as const) {
-      expect(SKILLS.filter((n) => n.cls === cls)).toHaveLength(10);
+      const mine = SKILLS.filter((n) => n.cls === cls);
+      expect(mine).toHaveLength(10);
+      expect(new Set(mine.map((n) => n.level))).toEqual(new Set([2, 4, 6, 8, 10]));
     }
   });
 
-  it("gives a point per level after the first and needs the node before", () => {
-    const h = lv(3);
+  it("opens a pick every other level, and taking one option locks the other", () => {
+    const h = lv(5);
     expect(skillPoints(h)).toBe(2);
-    expect(canLearn(h, "knight-guardian-2")).toBe(false);
-    expect(canLearn(h, "mage-alchemist-1")).toBe(false);
-    const after = take(h, "knight-guardian-1", "knight-guardian-2", "knight-guardian-3");
-    expect(after.skills).toEqual(["knight-guardian-1", "knight-guardian-2"]);
+    expect(canLearn(h, "knight-6a")).toBe(false);
+    expect(canLearn(h, "mage-2a")).toBe(false);
+    const after = take(h, "knight-2a", "knight-2b", "knight-4b");
+    expect(after.skills).toEqual(["knight-2a", "knight-4b"]);
     expect(skillPoints(after)).toBe(0);
   });
 
-  it("reaches only one capstone with nine points", () => {
-    const h = take(lv(10), ...guardian, ...berserker);
-    expect(h.skills).toHaveLength(9);
-    expect(h.skills).toContain("knight-guardian-5");
-    expect(h.skills).not.toContain("knight-berserker-5");
-  });
-
-  it("adds power skills, and Shield wall lifts the other heroes", () => {
-    const wall = take(lv(10), ...guardian);
+  it("adds power picks, and Shield wall lifts the other heroes", () => {
+    const wall = take(lv(10), "knight-2a", "knight-6a", "knight-10a");
     const ally = lv(1, "mage");
-    // Leader: 1 + level steps 3 + Guardian 4; ally: 1 + Shield wall 1.
-    expect(power([wall, ally])).toBe(8 + 2);
+    // Leader: 1 + level steps 3 + Sturdy 2 + Bulwark 3; ally: 1 + Shield wall 1.
+    expect(power([wall, ally])).toBe(9 + 2);
   });
 
-  it("adds stat skills to the party bonuses and charges for a respec", () => {
-    const mage = take(lv(3, "mage"), "mage-alchemist-1", "mage-alchemist-2");
-    expect(partyBonuses([mage]).goldPct).toBe(9 + 10);
+  it("adds stat picks to the party bonuses and charges for a respec", () => {
+    const mage = take(lv(4, "mage"), "mage-2b", "mage-4b");
+    expect(partyBonuses([mage]).goldPct).toBe(12 + 10);
+    expect(partyBonuses([mage]).fightPct).toBe(10);
     expect(respecCost(mage)).toBe(40);
   });
 
-  it("discounts gear with Insight", () => {
-    const scholar = take(lv(10, "mage"), ...[1, 2, 3, 4, 5].map((t) => `mage-scholar-${t}`));
-    expect(gearCost(hero(0), "weapon", [scholar])).toBe(24);
+  it("discounts gear with Insight and brings recruits up with Rally", () => {
+    const mage = take(lv(8, "mage"), "mage-8a");
+    expect(gearCost(hero(0), "weapon", [mage])).toBe(24);
+    const knight = take(lv(8), "knight-8a");
+    expect(levelFor(recruitXp([knight], []))).toBe(8);
   });
 
-  it("drops skills a save shouldn't have", () => {
-    const h = { ...lv(2), skills: ["knight-guardian-2", "mage-alchemist-1", "knight-guardian-1"] };
-    expect(validSkills(h)).toEqual(["knight-guardian-1"]);
+  it("drops picks a save shouldn't have", () => {
+    const h = { ...lv(4), skills: ["knight-4a", "knight-4b", "mage-2a", "knight-6a"] };
+    expect(validSkills(h)).toEqual(["knight-4a"]);
   });
 });

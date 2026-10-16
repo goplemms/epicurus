@@ -136,125 +136,157 @@ export function partyBonuses(heroes: readonly Hero[]): Record<ClassPerkKind, num
   return total;
 }
 
-/** A skill node's effect. Stat effects stack; the rest are capstones that bend a rule. */
+/** A skill's effect. Stat effects stack; the rest bend a rule. */
 export type SkillEffect =
   | {
-      kind: ClassPerkKind | "power" | "allyPower" | "finishGold" | "gearDiscountPct";
+      kind:
+        | ClassPerkKind
+        | "power"
+        | "allyPower"
+        | "finishGold"
+        | "finishXp"
+        | "gearDiscountPct"
+        | "extraLootRoll"
+        | "abandonFinishPct"
+        | "restXp"
+        | "recruitFullLevel"
+        | "nthFoeLoot";
       value: number;
     }
-  | { kind: "nthFoe"; value: number; gold: boolean; xp: boolean }
-  | { kind: "extraLootRoll" | "abandonFinishPct" | "restXp"; value: number };
+  | { kind: "nthFoe"; value: number; gold: boolean; xp: boolean };
 
 export interface SkillNode {
   id: string;
   cls: HeroClass;
-  branch: string;
-  /** 1-5; each needs the one before it in its branch. Tier 5 is the capstone. */
-  tier: number;
+  /** The level that opens this pick; each level offers two options and you take one. */
+  level: number;
+  side: "A" | "B";
   name: string;
   effect: SkillEffect;
 }
 
-export const SKILL_TIERS = 5;
-export const RESPEC_COST_PER_POINT = 20;
-const ROMAN = ["I", "II", "III", "IV"] as const;
+/** Levels that give a pick; the last row holds the capstones. */
+export const PICK_LEVELS = [2, 4, 6, 8, 10] as const;
+export const RESPEC_COST_PER_PICK = 20;
 
-/** Four stat nodes and a capstone. */
-function branch(
-  cls: HeroClass,
-  name: string,
-  stat: SkillEffect,
-  statText: string,
-  capstone: string,
-  effect: SkillEffect,
-): SkillNode[] {
-  const slug = `${cls}-${name.toLowerCase()}`;
-  return [
-    ...ROMAN.map((r, i) => ({
-      id: `${slug}-${i + 1}`,
-      cls,
-      branch: name,
-      tier: i + 1,
-      name: `${name} ${r}: ${statText}`,
-      effect: stat,
-    })),
-    { id: `${slug}-5`, cls, branch: name, tier: SKILL_TIERS, name: capstone, effect },
-  ];
+type Option = [name: string, effect: SkillEffect];
+
+/** A class's rows of either/or options, one row per pick level. */
+function picks(cls: HeroClass, rows: readonly [Option, Option][]): SkillNode[] {
+  return rows.flatMap(([a, b], i) => {
+    const level = PICK_LEVELS[i] ?? MAX_LEVEL;
+    return [
+      { id: `${cls}-${level}a`, cls, level, side: "A" as const, name: a[0], effect: a[1] },
+      { id: `${cls}-${level}b`, cls, level, side: "B" as const, name: b[0], effect: b[1] },
+    ];
+  });
 }
 
-/** Every class tree: two branches each. A new branch or class is a new entry here. */
+const stat = (kind: ClassPerkKind | "power", value: number): SkillEffect => ({ kind, value });
+
+/** Every class's picks. A new option or class is a new entry here. */
 export const SKILLS: readonly SkillNode[] = [
-  ...branch(
-    "knight",
-    "Guardian",
-    { kind: "power", value: 1 },
-    "+1 power",
-    "Shield wall: every other hero +1 power",
-    { kind: "allyPower", value: 1 },
-  ),
-  ...branch(
-    "knight",
-    "Berserker",
-    { kind: "fightPct", value: 5 },
-    "5% shorter fights",
-    "Cleave: every 5th foe counts twice",
-    { kind: "nthFoe", value: 5, gold: true, xp: true },
-  ),
-  ...branch(
-    "mage",
-    "Alchemist",
-    { kind: "goldPct", value: 5 },
-    "+5% gold",
-    "Golden touch: finish bonus 30 gold",
-    { kind: "finishGold", value: 20 },
-  ),
-  ...branch(
-    "mage",
-    "Scholar",
-    { kind: "xpPct", value: 5 },
-    "+5% party XP",
-    "Insight: gear costs 20% less",
-    { kind: "gearDiscountPct", value: 20 },
-  ),
-  ...branch(
-    "archer",
-    "Scout",
-    { kind: "lootPts", value: 3 },
-    "+3% loot chance",
-    "Treasure hunter: loot rolls twice",
-    { kind: "extraLootRoll", value: 1 },
-  ),
-  ...branch(
-    "archer",
-    "Hunter",
-    { kind: "goldPct", value: 4 },
-    "+4% gold",
-    "Big game: every 5th foe pays double gold",
-    { kind: "nthFoe", value: 5, gold: true, xp: false },
-  ),
-  ...branch(
-    "cleric",
-    "Healer",
-    { kind: "xpPct", value: 5 },
-    "+5% party XP",
-    "Grace: quitting early pays half the finish bonus",
-    { kind: "abandonFinishPct", value: 50 },
-  ),
-  ...branch(
-    "cleric",
-    "Templar",
-    { kind: "power", value: 1 },
-    "+1 power",
-    "Sanctuary: finishing a rest gives 5 XP",
-    { kind: "restXp", value: 5 },
-  ),
+  ...picks("knight", [
+    [
+      ["Sturdy: +2 power", stat("power", 2)],
+      ["Swift: 10% shorter fights", stat("fightPct", 10)],
+    ],
+    [
+      ["Drillmaster: +10% party XP", stat("xpPct", 10)],
+      ["Plunder: +10% gold", stat("goldPct", 10)],
+    ],
+    [
+      ["Bulwark: +3 power", stat("power", 3)],
+      ["Frenzy: 15% shorter fights", stat("fightPct", 15)],
+    ],
+    [
+      ["Rally: recruits join at your best level", { kind: "recruitFullLevel", value: 1 }],
+      ["Bounty: every 10th foe drops loot", { kind: "nthFoeLoot", value: 10 }],
+    ],
+    [
+      ["Shield wall: every other hero +1 power", { kind: "allyPower", value: 1 }],
+      ["Cleave: every 5th foe counts twice", { kind: "nthFoe", value: 5, gold: true, xp: true }],
+    ],
+  ]),
+  ...picks("mage", [
+    [
+      ["Study: +10% party XP", stat("xpPct", 10)],
+      ["Spark: +10% gold", stat("goldPct", 10)],
+    ],
+    [
+      ["Ward: +2 power", stat("power", 2)],
+      ["Haste: 10% shorter fights", stat("fightPct", 10)],
+    ],
+    [
+      ["Lore: +15% party XP", stat("xpPct", 15)],
+      ["Transmute: +15% gold", stat("goldPct", 15)],
+    ],
+    [
+      ["Insight: gear 20% cheaper", { kind: "gearDiscountPct", value: 20 }],
+      ["Scry: +10% loot chance", stat("lootPts", 10)],
+    ],
+    [
+      [
+        "Arcane surge: every 5th foe gives double XP",
+        { kind: "nthFoe", value: 5, gold: false, xp: true },
+      ],
+      ["Golden touch: finish bonus 30 gold", { kind: "finishGold", value: 20 }],
+    ],
+  ]),
+  ...picks("archer", [
+    [
+      ["Track: +10% party XP", stat("xpPct", 10)],
+      ["Keen: +5% loot chance", stat("lootPts", 5)],
+    ],
+    [
+      ["Forage: +10% gold", stat("goldPct", 10)],
+      ["Quick: 10% shorter fights", stat("fightPct", 10)],
+    ],
+    [
+      ["Skirmisher: +3 power", stat("power", 3)],
+      ["Eagle eye: +8% loot chance", stat("lootPts", 8)],
+    ],
+    [
+      ["Volley: 15% shorter fights", stat("fightPct", 15)],
+      ["Poacher: every 10th foe drops loot", { kind: "nthFoeLoot", value: 10 }],
+    ],
+    [
+      [
+        "Big game: every 5th foe pays double gold",
+        { kind: "nthFoe", value: 5, gold: true, xp: false },
+      ],
+      ["Treasure hunter: loot rolls twice", { kind: "extraLootRoll", value: 1 }],
+    ],
+  ]),
+  ...picks("cleric", [
+    [
+      ["Bless: +10% party XP", stat("xpPct", 10)],
+      ["Smite: +2 power", stat("power", 2)],
+    ],
+    [
+      ["Tithe: +10% gold", stat("goldPct", 10)],
+      ["Zeal: 10% shorter fights", stat("fightPct", 10)],
+    ],
+    [
+      ["Litany: +15% party XP", stat("xpPct", 15)],
+      ["Aegis: +3 power", stat("power", 3)],
+    ],
+    [
+      ["Mercy: recruits join at your best level", { kind: "recruitFullLevel", value: 1 }],
+      ["Sanctuary: finishing a rest gives 10 XP", { kind: "restXp", value: 10 }],
+    ],
+    [
+      ["Grace: quitting early pays half the finish bonus", { kind: "abandonFinishPct", value: 50 }],
+      ["Miracle: a finished session gives 30 XP", { kind: "finishXp", value: 20 }],
+    ],
+  ]),
 ];
 
 export function skillNode(id: string): SkillNode | undefined {
   return SKILLS.find((n) => n.id === id);
 }
 
-/** Total of one effect kind over the given heroes' taken skills. */
+/** Total of one effect kind over the given heroes' picks. */
 export function sumSkill(heroes: readonly Hero[], kind: SkillEffect["kind"]): number {
   let total = 0;
   for (const h of heroes) {
@@ -266,7 +298,7 @@ export function sumSkill(heroes: readonly Hero[], kind: SkillEffect["kind"]): nu
   return total;
 }
 
-/** The every-nth-foe capstones the party has, one entry per hero that took one. */
+/** The every-nth-foe picks the party has, one entry per hero that took one. */
 export function nthFoeSkills(
   heroes: readonly Hero[],
 ): { value: number; gold: boolean; xp: boolean }[] {
@@ -278,25 +310,24 @@ export function nthFoeSkills(
   );
 }
 
-/** One point per level after the first. */
+/** Picks the hero has reached but not made yet. */
 export function skillPoints(hero: Hero): number {
-  return levelFor(hero.xp) - 1 - hero.skills.length;
+  const level = levelFor(hero.xp);
+  return PICK_LEVELS.filter((l) => l <= level).length - hero.skills.length;
+}
+
+/** The option this hero took at a pick level, if any. */
+export function pickAt(hero: Hero, level: number): SkillNode | undefined {
+  return hero.skills.map(skillNode).find((n) => n?.level === level);
 }
 
 export function canLearn(hero: Hero, id: string): boolean {
   const node = skillNode(id);
-  if (!node || node.cls !== hero.cls || hero.skills.includes(id) || skillPoints(hero) < 1) {
-    return false;
-  }
   return (
-    node.tier === 1 ||
-    SKILLS.some(
-      (n) =>
-        n.cls === node.cls &&
-        n.branch === node.branch &&
-        n.tier === node.tier - 1 &&
-        hero.skills.includes(n.id),
-    )
+    node !== undefined &&
+    node.cls === hero.cls &&
+    node.level <= levelFor(hero.xp) &&
+    pickAt(hero, node.level) === undefined
   );
 }
 
@@ -305,18 +336,12 @@ export function learnSkill(hero: Hero, id: string): Hero {
 }
 
 export function respecCost(hero: Hero): number {
-  return RESPEC_COST_PER_POINT * hero.skills.length;
+  return RESPEC_COST_PER_PICK * hero.skills.length;
 }
 
-/** Keeps only skills of the hero's class whose prerequisites are also kept, within its points. */
+/** Keeps the first valid pick per level, of the hero's class, at levels it has reached. */
 export function validSkills(hero: Hero): string[] {
-  let h: Hero = { ...hero, skills: [] };
-  const wanted = [...hero.skills]
-    .map((id) => skillNode(id))
-    .filter((n): n is SkillNode => n !== undefined)
-    .sort((a, b) => a.tier - b.tier);
-  for (const n of wanted) h = learnSkill(h, n.id);
-  return h.skills;
+  return hero.skills.reduce(learnSkill, { ...hero, skills: [] }).skills;
 }
 
 /** Knights can halve a fight at most. */
@@ -593,10 +618,11 @@ export function startingParty(
   return heroes;
 }
 
-/** A recruit joins two levels below the party's best, so late joiners aren't dead weight. */
+/** A recruit joins two levels below the party's best (Rally or Mercy: at it), so late joiners aren't dead weight. */
 export function recruitXp(heroes: readonly Hero[], owned: readonly string[]): number {
   const best = Math.max(1, ...heroes.map((h) => levelFor(h.xp)));
-  return xpForLevel(Math.max(perks(owned).startLevel, best - 2));
+  const behind = sumSkill(heroes, "recruitFullLevel") > 0 ? 0 : 2;
+  return xpForLevel(Math.max(perks(owned).startLevel, best - behind));
 }
 
 /** Gives every hero `base` XP, scaled by Blessing and Veterans, and names anyone who levelled up. */
