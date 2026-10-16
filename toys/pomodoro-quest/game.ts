@@ -4,19 +4,29 @@ import {
   buyNode,
   canRetire,
   FINISH_BONUS,
-  fightMsFor,
+  FINISH_XP,
+  FOE_XP,
   foesBeaten,
   gearCost,
+  grantXp,
   type Hero,
   type Legacy,
+  learnSkill,
   MAX_PARTY,
+  nthFoeSkills,
+  partyBonuses,
+  partyFightMs,
   perks,
   power,
   recruitCost,
+  recruitXp,
   renownFor,
+  respecCost,
   rollLoot,
   type Slot,
+  skillNode,
   startingParty,
+  sumSkill,
 } from "./economy";
 import type { HeroClass } from "./sprites";
 import {
@@ -81,6 +91,8 @@ export type Action =
   | { type: "durations"; durations: Durations }
   | { type: "rename"; hero: number; name: string }
   | { type: "buyGear"; hero: number; slot: Slot }
+  | { type: "learnSkill"; hero: number; id: string }
+  | { type: "respec"; hero: number }
   | { type: "recruit"; name: string; cls: HeroClass }
   | { type: "retire" }
   | { type: "buyNode"; id: string };
@@ -93,13 +105,21 @@ export function today(now: number): string {
 
 export function newRun(leader: { name: string; cls: HeroClass }, owned: readonly string[]): Run {
   const heroes = startingParty(leader, owned);
-  return { gold: 0, runGold: 0, heroes, paidFoes: 0, fightMs: fightMsFor(power(heroes)) };
+  return { gold: 0, runGold: 0, heroes, paidFoes: 0, fightMs: partyFightMs(heroes) };
 }
 
 function earn(s: State, gold: number): State {
   if (gold <= 0) return s;
-  const g = gold * perks(s.legacy.owned).goldMult;
+  const mult = perks(s.legacy.owned).goldMult + partyBonuses(s.run.heroes).goldPct / 100;
+  const g = gold * mult;
   return { ...s, run: { ...s.run, gold: s.run.gold + g, runGold: s.run.runGold + g } };
+}
+
+/** XP for the whole party; a level-up is news and rings the chime. */
+function learn(s: State, xp: number): { state: State; text: string | null } {
+  const { heroes, text } = grantXp(s.run.heroes, xp, s.legacy.owned);
+  const state = { ...s, run: { ...s.run, heroes } };
+  return { state, text };
 }
 
 /** Pays for every foe beaten so far this focus session that hasn't been paid for yet. */
@@ -109,28 +129,88 @@ function payFoes(s: State, now: number): State {
   const owed = beaten - s.run.paidFoes;
   if (owed <= 0) return s;
   const area = AREAS[areaFor(power(s.run.heroes))] ?? AREAS[0];
-  const paid = earn(s, owed * area.goldPerFoe);
-  return {
-    ...paid,
-    run: { ...paid.run, paidFoes: beaten },
+  // Cleave and Big game: every nth foe of the session counts again.
+  let extraGold = 0;
+  let extraXp = 0;
+  for (const e of nthFoeSkills(s.run.heroes)) {
+    const hits = Math.floor(beaten / e.value) - Math.floor(s.run.paidFoes / e.value);
+    if (e.gold) extraGold += hits;
+    if (e.xp) extraXp += hits;
+  }
+  const gold = (owed + extraGold) * area.goldPerFoe;
+  const { state: learned, text } = learn(earn(s, gold), (owed + extraXp) * FOE_XP);
+  // Bounty and Poacher: every nth foe of the session drops loot for sure.
+  let heroes = learned.run.heroes;
+  const found: string[] = [];
+  for (const n of nthFoeLootSkills(s.run.heroes)) {
+    for (let k = Math.floor(s.run.paidFoes / n) + 1; k <= Math.floor(beaten / n); k++) {
+      const loot = rollLoot(heroes, (s.timer.endsAt ?? 0) + k * n * 104_729, 1);
+      if (loot) {
+        heroes = loot.heroes;
+        found.push(loot.text);
+      }
+    }
+  }
+  const paid: State = {
+    ...learned,
+    run: { ...learned.run, heroes, paidFoes: beaten },
     stats: { ...s.stats, foes: s.stats.foes + owed, totalFoes: s.stats.totalFoes + owed },
   };
+  const news = [...found, text].filter(Boolean).join(" ");
+  return news ? { ...paid, chimes: paid.chimes + 1, event: note(s, news) } : paid;
+}
+
+/** The finish bonus, raised by Golden touch. */
+function finishGold(heroes: readonly Hero[]): number {
+  return FINISH_BONUS + sumSkill(heroes, "finishGold");
+}
+
+/** Finish XP, raised by Miracle. */
+function finishXp(heroes: readonly Hero[]): number {
+  return FINISH_XP + sumSkill(heroes, "finishXp");
+}
+
+/** The nth of each Bounty or Poacher the party has. */
+function nthFoeLootSkills(heroes: readonly Hero[]): number[] {
+  return heroes.flatMap((h) =>
+    h.skills.flatMap((id) => {
+      const e = skillNode(id)?.effect;
+      return e?.kind === "nthFoeLoot" ? [e.value] : [];
+    }),
+  );
 }
 
 function finishPhase(s: State): State {
   const t = s.timer;
   let next: State = { ...s, timer: advance(t, s.durations, true), chimes: s.chimes + 1 };
-  if (t.phase !== "focus") return next;
-  next = earn(next, FINISH_BONUS);
+  if (t.phase !== "focus") {
+    // Sanctuary: a rest taken in full is worth some XP.
+    const rested = learn(next, sumSkill(s.run.heroes, "restXp"));
+    return rested.text ? { ...rested.state, event: note(s, rested.text) } : rested.state;
+  }
+  const learned = learn(earn(next, finishGold(next.run.heroes)), finishXp(next.run.heroes));
+  next = learned.state;
   next = {
     ...next,
     stats: { ...next.stats, quests: next.stats.quests + 1 },
     run: { ...next.run, paidFoes: 0 },
   };
-  const loot = rollLoot(next.run.heroes, t.endsAt ?? 0, perks(next.legacy.owned).lootChance);
-  return loot
-    ? { ...next, run: { ...next.run, heroes: loot.heroes }, event: note(s, loot.text) }
-    : { ...next, event: note(s, "Quest complete.") };
+  const chance = perks(next.legacy.owned).lootChance + partyBonuses(next.run.heroes).lootPts / 100;
+  // Treasure hunter adds rolls with their own seeds.
+  const rolls = 1 + sumSkill(next.run.heroes, "extraLootRoll");
+  const found: string[] = [];
+  let heroes = next.run.heroes;
+  for (let i = 0; i < rolls; i++) {
+    const loot = rollLoot(heroes, (t.endsAt ?? 0) + i * 7_919, chance);
+    if (loot) {
+      heroes = loot.heroes;
+      found.push(loot.text);
+    }
+  }
+  const news = [...(found.length ? found : ["Quest complete."]), learned.text]
+    .filter(Boolean)
+    .join(" ");
+  return { ...next, run: { ...next.run, heroes }, event: note(s, news) };
 }
 
 export function reducer(s: State, a: Action): State {
@@ -145,14 +225,27 @@ export function reducer(s: State, a: Action): State {
     case "toggle": {
       if (isRunning(s.timer)) return { ...s, timer: pause(s.timer, a.now) };
       const fresh = s.timer.phase === "focus" && isUntouched(s.timer, s.durations);
-      const run = fresh
-        ? { ...s.run, paidFoes: 0, fightMs: fightMsFor(power(s.run.heroes)) }
-        : s.run;
+      const run = fresh ? { ...s.run, paidFoes: 0, fightMs: partyFightMs(s.run.heroes) } : s.run;
       return { ...s, run, timer: start(s.timer, a.now) };
     }
-    case "skip":
+    case "skip": {
       // Foes already beaten were paid as they fell, so an abandoned session keeps them.
-      return { ...s, timer: advance(s.timer, s.durations, false), run: { ...s.run, paidFoes: 0 } };
+      let next = s;
+      const pct = sumSkill(s.run.heroes, "abandonFinishPct") / 100;
+      if (pct > 0 && s.timer.phase === "focus" && !isUntouched(s.timer, s.durations)) {
+        // Grace: quitting early still pays part of the finish bonus.
+        const learned = learn(
+          earn(s, finishGold(s.run.heroes) * pct),
+          finishXp(s.run.heroes) * pct,
+        );
+        next = learned.text ? { ...learned.state, event: note(s, learned.text) } : learned.state;
+      }
+      return {
+        ...next,
+        timer: advance(s.timer, s.durations, false),
+        run: { ...next.run, paidFoes: 0 },
+      };
+    }
     case "restart":
       return {
         ...s,
@@ -178,17 +271,43 @@ export function reducer(s: State, a: Action): State {
       };
     case "buyGear": {
       const hero = s.run.heroes[a.hero];
-      const cost = hero ? gearCost(hero, a.slot) : null;
+      const cost = hero ? gearCost(hero, a.slot, s.run.heroes) : null;
       if (!hero || cost === null || s.run.gold < cost) return s;
       const heroes = s.run.heroes.map((h, i) =>
         i === a.hero ? { ...h, [a.slot]: h[a.slot] + 1 } : h,
       );
       return { ...s, run: { ...s.run, gold: s.run.gold - cost, heroes } };
     }
+    case "learnSkill": {
+      const hero = s.run.heroes[a.hero];
+      if (!hero) return s;
+      const learned = learnSkill(hero, a.id);
+      if (learned === hero) return s;
+      return {
+        ...s,
+        run: { ...s.run, heroes: s.run.heroes.map((h, i) => (i === a.hero ? learned : h)) },
+      };
+    }
+    case "respec": {
+      const hero = s.run.heroes[a.hero];
+      if (!hero?.skills.length || isRunning(s.timer)) return s;
+      const cost = respecCost(hero);
+      if (s.run.gold < cost) return s;
+      const heroes = s.run.heroes.map((h, i) => (i === a.hero ? { ...h, skills: [] } : h));
+      return { ...s, run: { ...s.run, gold: s.run.gold - cost, heroes } };
+    }
     case "recruit": {
       const cost = recruitCost(s.run.heroes, s.legacy.owned);
       if (cost === null || s.run.gold < cost || s.run.heroes.length >= MAX_PARTY) return s;
-      const hero: Hero = { name: a.name.slice(0, 16), cls: a.cls, weapon: 0, armor: 0 };
+      const xp = recruitXp(s.run.heroes, s.legacy.owned);
+      const hero: Hero = {
+        name: a.name.slice(0, 16),
+        cls: a.cls,
+        weapon: 0,
+        armor: 0,
+        xp,
+        skills: [],
+      };
       return {
         ...s,
         run: { ...s.run, gold: s.run.gold - cost, heroes: [...s.run.heroes, hero] },

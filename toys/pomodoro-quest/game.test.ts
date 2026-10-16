@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fightMsFor, foesBeaten } from "./economy";
+import { foesBeaten, levelFor, partyFightMs, xpForLevel } from "./economy";
 import { type Action, reducer, type State } from "./game";
 import { defaults } from "./storage";
 
@@ -10,6 +10,8 @@ function fresh(): State {
   return { ...defaults(T0), chimes: 0, event: null };
 }
 
+const FIGHT = partyFightMs(fresh().run.heroes);
+
 function run(s: State, ...actions: Action[]): State {
   return actions.reduce(reducer, s);
 }
@@ -18,14 +20,13 @@ describe("earning", () => {
   it("pays gold as foes fall and a bonus on finishing", () => {
     let s = run(fresh(), { type: "toggle", now: T0 });
     s = run(s, { type: "tick", now: T0 + 5 * MIN });
-    const fight = fightMsFor(1);
-    expect(s.run.gold).toBe(foesBeaten(5 * MIN, fight));
+    expect(s.run.gold).toBe(foesBeaten(5 * MIN, FIGHT));
     expect(s.stats.foes).toBe(s.run.gold);
 
     s = run(s, { type: "tick", now: T0 + 25 * MIN });
     expect(s.timer.phase).toBe("short");
     expect(s.stats.quests).toBe(1);
-    expect(s.run.runGold).toBe(foesBeaten(25 * MIN, fight) + 10);
+    expect(s.run.runGold).toBe(foesBeaten(25 * MIN, FIGHT) + 10);
     expect(s.chimes).toBe(1);
   });
 
@@ -36,7 +37,7 @@ describe("earning", () => {
       { type: "tick", now: T0 + 10 * MIN },
       { type: "skip" },
     );
-    const earned = foesBeaten(10 * MIN, fightMsFor(1));
+    const earned = foesBeaten(10 * MIN, FIGHT);
     expect(s.run.gold).toBe(earned);
     expect(s.stats.quests).toBe(0);
     // The next focus session starts counting from zero again.
@@ -52,7 +53,107 @@ describe("earning", () => {
       { type: "toggle", now: T0 },
       { type: "tick", now: T0 + 10 * MIN },
     );
-    expect(s.run.gold).toBeCloseTo(foesBeaten(10 * MIN, fightMsFor(1)) * 1.1);
+    expect(s.run.gold).toBeCloseTo(foesBeaten(10 * MIN, FIGHT) * 1.1);
+  });
+});
+
+describe("hero levels", () => {
+  it("pays XP as foes fall, plus a finish bonus, and announces level-ups", () => {
+    let s = run(fresh(), { type: "toggle", now: T0 }, { type: "tick", now: T0 + 5 * MIN });
+    expect(s.run.heroes[0]?.xp).toBe(foesBeaten(5 * MIN, FIGHT));
+    s = run(s, { type: "tick", now: T0 + 25 * MIN });
+    const xp = foesBeaten(25 * MIN, FIGHT) + 10;
+    expect(s.run.heroes[0]?.xp).toBe(xp);
+    expect(levelFor(xp)).toBe(2);
+    expect(s.event?.text).toContain("Ada reached level 2!");
+  });
+
+  it("recruits join two levels below the party's best", () => {
+    const base = fresh();
+    const leader = {
+      name: "Ada",
+      cls: "knight" as const,
+      weapon: 0,
+      armor: 0,
+      xp: xpForLevel(7),
+      skills: [],
+    };
+    let s: State = { ...base, run: { ...base.run, gold: 100, heroes: [leader] } };
+    s = run(s, { type: "recruit", name: "Bo", cls: "mage" });
+    expect(levelFor(s.run.heroes[1]?.xp ?? 0)).toBe(5);
+  });
+});
+
+describe("skill picks", () => {
+  const withLeader = (skills: string[], xp = xpForLevel(10)): State => {
+    const base = fresh();
+    const leader = { name: "Ada", cls: "knight" as const, weapon: 0, armor: 0, xp, skills };
+    return { ...base, run: { ...base.run, heroes: [leader], fightMs: partyFightMs([leader]) } };
+  };
+
+  it("learns a node with a free point and respecs for gold while paused", () => {
+    let s = withLeader([], xpForLevel(2));
+    s = run(s, { type: "learnSkill", hero: 0, id: "knight-2a" });
+    expect(s.run.heroes[0]?.skills).toEqual(["knight-2a"]);
+    expect(run(s, { type: "respec", hero: 0 })).toBe(s);
+    s = { ...s, run: { ...s.run, gold: 25 } };
+    s = run(s, { type: "respec", hero: 0 });
+    expect(s.run.heroes[0]?.skills).toEqual([]);
+    expect(s.run.gold).toBe(5);
+  });
+
+  it("Cleave counts every 5th foe twice, for gold and XP", () => {
+    let s = withLeader(["knight-10b"]);
+    const fight = s.run.fightMs;
+    s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 10 * MIN });
+    const foes = foesBeaten(10 * MIN, fight);
+    expect(s.run.gold).toBe(foes + Math.floor(foes / 5));
+    expect(s.run.heroes[0]?.xp).toBeCloseTo(xpForLevel(10));
+  });
+
+  it("Bounty drops loot on every 10th foe", () => {
+    let s = withLeader(["knight-8b"], xpForLevel(8));
+    const fight = s.run.fightMs;
+    s = run(s, { type: "toggle", now: T0 });
+    let t = 0;
+    while (foesBeaten(t, fight) < 10) t += 1_000;
+    s = run(s, { type: "tick", now: T0 + t });
+    const h = s.run.heroes[0];
+    expect((h?.weapon ?? 0) + (h?.armor ?? 0)).toBe(1);
+    expect(s.event?.text).toContain("Loot!");
+  });
+
+  it("Grace pays half the finish bonus when a started session is skipped", () => {
+    const base = fresh();
+    const cleric = {
+      name: "Dot",
+      cls: "cleric" as const,
+      weapon: 0,
+      armor: 0,
+      xp: xpForLevel(10),
+      skills: ["cleric-10a"],
+    };
+    let s: State = { ...base, run: { ...base.run, heroes: [cleric] } };
+    s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 1_000 }, { type: "skip" });
+    expect(s.run.gold).toBe(5);
+    expect(run(s, { type: "skip" }).run.gold).toBe(5);
+  });
+
+  it("Sanctuary gives XP when a rest runs out", () => {
+    const base = fresh();
+    const cleric = {
+      name: "Dot",
+      cls: "cleric" as const,
+      weapon: 0,
+      armor: 0,
+      xp: xpForLevel(8),
+      skills: ["cleric-8b"],
+    };
+    let s: State = { ...base, run: { ...base.run, heroes: [cleric] } };
+    s = run(s, { type: "skip" });
+    expect(s.timer.phase).toBe("short");
+    s = run(s, { type: "toggle", now: T0 }, { type: "tick", now: T0 + 60 * MIN });
+    expect(s.run.heroes[0]?.xp).toBeGreaterThan(xpForLevel(8));
   });
 });
 
@@ -89,15 +190,24 @@ describe("retiring", () => {
         runGold: 900,
         gold: 50,
         heroes: [
-          { name: "Ada", cls: "knight", weapon: 3, armor: 3 },
-          { name: "Bo", cls: "cleric", weapon: 2, armor: 0 },
+          {
+            name: "Ada",
+            cls: "knight",
+            weapon: 3,
+            armor: 3,
+            xp: xpForLevel(6),
+            skills: ["knight-guardian-1"],
+          },
+          { name: "Bo", cls: "cleric", weapon: 2, armor: 0, xp: 0, skills: [] },
         ],
       },
     };
     s = run(s, { type: "retire" });
     expect(s.legacy).toEqual({ renown: 3, owned: [], retirements: 1 });
     expect(s.run.gold).toBe(0);
-    expect(s.run.heroes).toEqual([{ name: "Ada", cls: "knight", weapon: 0, armor: 0 }]);
+    expect(s.run.heroes).toEqual([
+      { name: "Ada", cls: "knight", weapon: 0, armor: 0, xp: 0, skills: [] },
+    ]);
   });
 
   it("applies start-of-run rewards bought before the new run earns anything", () => {

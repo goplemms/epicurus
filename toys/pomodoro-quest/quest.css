@@ -279,3 +279,98 @@
 .quest-tree button[aria-pressed="true"]:disabled {
   opacity: 1;
 }
+.quest-level {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  font-size: 0.8em;
+  color: var(--muted);
+}
+.quest-level-num {
+  width: 2.6rem;
+  color: inherit;
+  font-weight: 600;
+}
+.quest-xp {
+  flex: 0 0 4rem;
+  height: 0.35rem;
+  border-radius: 1rem;
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  overflow: hidden;
+}
+.quest-xp > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.quest-skills-toggle {
+  position: relative;
+}
+.quest-dot {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.2rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.quest-skills {
+  width: 100%;
+  padding: 0.5rem 0 0.25rem;
+}
+.quest-skills-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85em;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+.quest-picks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.quest-pick-row {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 1fr;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+.quest-pick-level {
+  align-self: center;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: var(--muted);
+}
+.quest-pick-row button {
+  padding: 0.35rem 0.4rem;
+  font-size: 0.75em;
+  line-height: 1.25;
+  text-align: center;
+}
+.quest-pick-row[data-capstone="true"] button {
+  font-weight: 600;
+  padding: 0.5rem 0.4rem;
+}
+.quest-pick-row button[data-state="taken"] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+.quest-pick-row button[data-state="open"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.quest-pick-row button[data-state="passed"] {
+  text-decoration: line-through;
+  opacity: 0.45;
+}
+.quest-pick-row button[data-state="locked"] {
+  border-style: dashed;
+}
